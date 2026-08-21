@@ -9,7 +9,14 @@ from app.api.upload import router as upload_router
 from app.api.zenodo import router as zenodo_router
 from app.api.analysis_history import router as analysis_history_router
 from app.config import GOOGLE_API_KEY
-from app.database.connection import get_database_status
+from app.database.connection import get_database_status, initialize_database
+
+
+cors_origins = [
+    origin.strip()
+    for origin in os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",")
+    if origin.strip()
+]
 
 app = FastAPI(
     title="Enterprise Incident RCA Assistant",

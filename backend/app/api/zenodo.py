@@ -1,7 +1,12 @@
-from fastapi import APIRouter, Query
+from __future__ import annotations
+
+from typing import Any, Dict, Optional
+
+from fastapi import APIRouter, Body, HTTPException, Query, status
 
 from app.config import ZENODO_RECORD_ID, ZENODO_SAMPLE_SIZE
-from app.services.zenodo_service import ZenodoService
+from app.database.connection import get_database_status
+from app.services.zenodo_service import ZenodoService, ZenodoServiceError
 
 
 router = APIRouter(prefix="/api/zenodo", tags=["Zenodo"])
@@ -48,7 +53,7 @@ async def zenodo_status(record_id: str = Query(default=ZENODO_RECORD_ID)):
 
 @router.post("/inspect")
 async def inspect_zenodo_dataset(
-    payload: dict[str, Any] | None = Body(default=None),
+    payload: Optional[Dict[str, Any]] = Body(default=None),
     record_id: str = Query(default=ZENODO_RECORD_ID),
     sample_size: int = Query(default=5, ge=1, le=20),
 ):
@@ -65,7 +70,7 @@ async def inspect_zenodo_dataset(
 
 @router.post("/ingest")
 async def trigger_zenodo_ingest(
-    payload: dict[str, Any] | None = Body(default=None),
+    payload: Optional[Dict[str, Any]] = Body(default=None),
 ):
     data = payload or {}
     limit = data.get("limit", 1000)

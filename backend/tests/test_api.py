@@ -57,11 +57,17 @@ class FakeGeminiClient:
         self.models = FakeModelRunner()
 
 
+class FakeAnalysisRepository:
+    def create(self, request, result):
+        return {"id": "f4e08625-025d-4b5c-b3c7-1834f3b67c6b"}
+
+
 def configure_runtime_doubles(monkeypatch):
     for module in (chat_module, similar_module):
         module.retriever.repository = FakeRepository()
         module.retriever.embedding_model = FakeEmbeddingModel()
     chat_module.llm.client = FakeGeminiClient()
+    chat_module.analysis_repository = FakeAnalysisRepository()
 
 
 def test_analyze_similar_and_disabled_upload_contracts(monkeypatch):
@@ -73,6 +79,7 @@ def test_analyze_similar_and_disabled_upload_contracts(monkeypatch):
     assert analyze_response.status_code == 200
     assert analyze_response.json()["root_cause"] == "Connection pool exhaustion"
     assert analyze_response.json()["evidence_incidents"][0]["incident_id"] == "INC-1001"
+    assert analyze_response.json()["analysis_id"] == "f4e08625-025d-4b5c-b3c7-1834f3b67c6b"
 
     similar_response = client.post("/api/incidents/similar", json=payload)
     assert similar_response.status_code == 200

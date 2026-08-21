@@ -72,7 +72,8 @@ cd backend
 python -m uvicorn app.main:app --reload
 
 cd frontend
-streamlit run app.py
+npm install
+npm run dev
 ```
 
 ## API

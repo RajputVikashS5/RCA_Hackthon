@@ -31,8 +31,10 @@ def test_zenodo_connection_returns_metadata_and_sample(monkeypatch):
     response = TestClient(app).get("/api/zenodo/test")
 
     assert response.status_code == 200
-    assert response.json()["filesFound"] == 1
-    assert response.json()["sampleRecords"][0]["incident_id"] == "INC-1"
+    data = response.json()["data"]
+    assert data["status"] == "available"
+    assert data["filesFound"] == 1
+    assert data["sampleRecords"][0]["incident_id"] == "INC-1"
     assert len(calls) == 2
 
 
@@ -48,9 +50,11 @@ def test_zenodo_connection_reports_record_without_public_files(monkeypatch):
     zenodo_module.service._cache.clear()
     response = TestClient(app).get("/api/zenodo/test")
 
-    assert response.status_code == 502
-    assert response.json()["detail"]["connection"] == "failed"
-    assert "no publicly downloadable files" in response.json()["detail"]["error"]
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["status"] == "restricted"
+    assert data["metadataAvailable"] is True
+    assert data["filesAvailable"] is False
 
 
 def test_zenodo_connection_reports_unsupported_file_format(monkeypatch):
@@ -69,5 +73,39 @@ def test_zenodo_connection_reports_unsupported_file_format(monkeypatch):
     zenodo_module.service._cache.clear()
     response = TestClient(app).get("/api/zenodo/test")
 
-    assert response.status_code == 502
-    assert "supported format" in response.json()["detail"]["error"]
+    assert response.status_code == 200
+    assert response.json()["data"]["status"] == "restricted"
+
+
+def test_zenodo_connection_reports_metadata_failure_as_unavailable(monkeypatch):
+    def unavailable(url, timeout):
+        raise service_module.requests.ConnectionError("network unavailable")
+
+    monkeypatch.setattr(service_module.requests, "get", unavailable)
+    zenodo_module.service._cache.clear()
+
+    response = TestClient(app).get("/api/zenodo/test")
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["status"] == "unavailable"
+    assert data["metadataAvailable"] is False
+
+
+def test_zenodo_connection_caches_a_restricted_source(monkeypatch):
+    calls = []
+
+    def fake_get(url, timeout):
+        calls.append(url)
+        return SimpleNamespace(
+            raise_for_status=lambda: None,
+            json=lambda: {"id": 7182101, "metadata": {"title": "Restricted"}, "files": []},
+        )
+
+    monkeypatch.setattr(service_module.requests, "get", fake_get)
+    zenodo_module.service._cache.clear()
+
+    client = TestClient(app)
+    assert client.get("/api/zenodo/test").json()["data"]["status"] == "restricted"
+    assert client.get("/api/zenodo/test").json()["data"]["status"] == "restricted"
+    assert len(calls) == 1

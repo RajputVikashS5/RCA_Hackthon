@@ -36,3 +36,17 @@ def test_database_retriever_supports_no_results():
     retriever.embedding_model = FakeEmbeddingModel()
 
     assert retriever.retrieve("No matching incident") == []
+
+
+def test_database_retriever_filters_low_similarity_matches():
+    class MixedRepository:
+        def search(self, embedding, top_k=5):
+            return [
+                {"incident_id": "INC-relevant", "similarity_score": 0.35},
+                {"incident_id": "INC-irrelevant", "similarity_score": 0.34},
+            ]
+
+    retriever = DatabaseRetriever(repository=MixedRepository())
+    retriever.embedding_model = FakeEmbeddingModel()
+
+    assert [item["incident_id"] for item in retriever.retrieve("Payment outage")] == ["INC-relevant"]

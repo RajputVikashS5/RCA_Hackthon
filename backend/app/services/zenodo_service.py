@@ -33,42 +33,91 @@ class ZenodoService:
     def test_connection(self, record_id: str = ZENODO_RECORD_ID, sample_size: int = ZENODO_SAMPLE_SIZE) -> dict[str, Any]:
         record_id = str(record_id).strip()
         if not record_id.isdigit():
-            raise ZenodoServiceError(f"Invalid Zenodo record ID: {record_id}")
+            return self._unavailable(record_id, "Invalid Zenodo record ID.")
 
-        record = self._get_cached(f"record:{record_id}")
-        if record is None:
-            print(f"[Zenodo] Connecting to record {record_id}")
-            record = self._fetch_record(record_id)
-            self._set_cached(f"record:{record_id}", record)
-            print("[Zenodo] Record found")
+        # Do not retry a known restricted file on every UI status refresh.
+        restricted = self._get_cached(f"restricted:{record_id}")
+        if restricted is not None:
+            return restricted
+
+        try:
+            record = self._get_cached(f"record:{record_id}")
+            if record is None:
+                print(f"[Zenodo] Connecting to record {record_id}")
+                record = self._fetch_record(record_id)
+                self._set_cached(f"record:{record_id}", record)
+                print("[Zenodo] Record found")
+        except ZenodoServiceError as exc:
+            # Zenodo is a supplemental source. A failed probe must never make the
+            # primary PostgreSQL/pgvector knowledge base unavailable.
+            return self._unavailable(record_id, str(exc))
 
         raw_files = record.get("files", [])
         files = self._available_files(record)
         print(f"[Zenodo] Files discovered: {len(files)}")
-        response: dict[str, Any] = {
-            "success": True,
-            "source": "Zenodo",
+        data: dict[str, Any] = {
+            "source": "zenodo",
             "recordId": record_id,
             "recordTitle": record.get("metadata", {}).get("title", "Untitled record"),
             "filesFound": len(files),
             "datasetFile": files[0]["key"] if files else None,
-            "connection": "successful",
+            "metadataAvailable": True,
+            "filesAvailable": bool(files),
             "sampleRecords": [],
         }
 
         if not files:
             if raw_files:
-                raise ZenodoServiceError(
-                    f"Zenodo record {record_id} has downloadable files, but none use a supported format: "
-                    f"{', '.join(str(item.get('key', 'unknown')) for item in raw_files)}"
+                message = (
+                    "Zenodo record metadata is accessible, but no supported dataset files are publicly downloadable."
                 )
-            raise ZenodoServiceError(
-                f"Zenodo record {record_id} is reachable, but it has no publicly downloadable files."
-            )
+            else:
+                message = "Zenodo record metadata is accessible, but dataset files are restricted."
+            return self._cache_restricted(record_id, self._response(data, status="restricted", message=message))
 
         file_info = files[0]
         print(f"[Zenodo] Dataset file: {file_info['key']}")
-        response["sampleRecords"] = self._get_sample(record_id, file_info, sample_size)
+        try:
+            data["sampleRecords"] = self._get_sample(record_id, file_info, sample_size)
+        except ZenodoServiceError as exc:
+            # A file link can be listed in public metadata but still reject a
+            # download. Treat that expected authorization failure as restricted.
+            return self._cache_restricted(
+                record_id,
+                self._response(data, status="restricted", message=str(exc), files_available=False),
+            )
+
+        return self._response(data, status="available", message="Zenodo metadata and dataset files are accessible.")
+
+    def _response(
+        self,
+        data: dict[str, Any],
+        *,
+        status: str,
+        message: str,
+        files_available: bool | None = None,
+    ) -> dict[str, Any]:
+        if files_available is not None:
+            data["filesAvailable"] = files_available
+        data["status"] = status
+        data["message"] = message
+        return {"success": True, "data": data}
+
+    def _unavailable(self, record_id: str, message: str) -> dict[str, Any]:
+        return self._response(
+            {
+                "source": "zenodo",
+                "recordId": record_id,
+                "metadataAvailable": False,
+                "filesAvailable": False,
+                "sampleRecords": [],
+            },
+            status="unavailable",
+            message=message,
+        )
+
+    def _cache_restricted(self, record_id: str, response: dict[str, Any]) -> dict[str, Any]:
+        self._set_cached(f"restricted:{record_id}", response)
         return response
 
     def _fetch_record(self, record_id: str) -> dict[str, Any]:

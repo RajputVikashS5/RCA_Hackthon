@@ -3,8 +3,7 @@ import {
   LayoutDashboard, 
   BarChart2, 
   AlertTriangle, 
-  Settings, 
-  Shield 
+  Settings
 } from 'lucide-react';
 
 interface SidebarProps {

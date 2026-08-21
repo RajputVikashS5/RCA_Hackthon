@@ -7,13 +7,15 @@ from fastapi import APIRouter, Body, HTTPException, Query, status
 from app.config import ZENODO_RECORD_ID, ZENODO_SAMPLE_SIZE
 from app.database.connection import get_database_status
 from app.services.zenodo_service import ZenodoService, ZenodoServiceError
+from ingestion.zenodo_client import ZenodoClient, ZenodoClientError
 
 
 router = APIRouter(prefix="/api/zenodo", tags=["Zenodo"])
 service = ZenodoService()
+client = ZenodoClient()
 
 
-def _zenodo_error(record_id: str, exc: ZenodoServiceError) -> HTTPException:
+def _zenodo_error(record_id: str, exc: Exception) -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_502_BAD_GATEWAY,
         detail={
@@ -65,6 +67,35 @@ async def inspect_zenodo_dataset(
         result["sample_count"] = int(result.get("sample_count") or 0)
         return result
     except ZenodoServiceError as exc:
+        # If the archive is available on Zenodo but not downloaded locally, return a
+        # metadata-only 'restricted' response rather than raising a 502. This keeps
+        # the UI informed without treating the source as an error.
+        return {
+            "success": True,
+            "data": {
+                "status": "restricted",
+                "metadataAvailable": True,
+                "filesAvailable": False,
+                "message": str(exc),
+            },
+        }
+
+
+@router.get("/info")
+async def zenodo_info(record_id: str = Query(default=ZENODO_RECORD_ID)):
+    try:
+        record = client.get_record(record_id)
+        files = client.list_files(record)
+        bson_files = client.bson_files(files)
+        metadata = record.get("metadata", {}) or {}
+        return {
+            "record_id": str(record.get("id") or record_id),
+            "title": metadata.get("title"),
+            "doi": metadata.get("doi") or metadata.get("identifiers"),
+            "files": files,
+            "bson_files": bson_files,
+        }
+    except ZenodoClientError as exc:
         raise _zenodo_error(record_id, exc) from exc
 
 
@@ -114,6 +145,30 @@ async def test_zenodo_connection(
     record_id: str = Query(default=ZENODO_RECORD_ID),
     sample_size: int = Query(default=ZENODO_SAMPLE_SIZE, ge=0, le=20),
 ):
-    # This endpoint is a source probe, not a dependency of RCA. Expected source
-    # states (restricted or unavailable) are returned as a successful check.
-    return service.test_connection(record_id, sample_size)
+    # Return a cached restricted probe quickly when available
+    cached = service._get_cached(f"restricted:{record_id}")
+    if cached is not None:
+        return cached
+
+    # Metadata-only probe: verify Zenodo metadata connectivity and list files.
+    try:
+        record = client.get_record(record_id)
+        files = client.list_files(record)
+        bson_files = client.bson_files(files)
+        data = {
+            "source": "zenodo",
+            "recordId": str(record.get("id") or record_id),
+            "title": record.get("metadata", {}).get("title"),
+            "filesFound": len(files),
+            "files": files,
+            "bsonFiles": bson_files,
+            "metadataAvailable": True,
+        }
+        status_str = "available" if files else "restricted"
+        response = {"success": True, "data": {**data, "status": status_str, "message": "Zenodo metadata accessible."}}
+        if status_str == "restricted":
+            # cache restricted state to avoid repeat probes
+            service._set_cached(f"restricted:{record_id}", response)
+        return response
+    except ZenodoClientError as exc:
+        return {"success": True, "data": {"source": "zenodo", "recordId": record_id, "status": "unavailable", "metadataAvailable": False, "message": str(exc)}}

@@ -56,9 +56,11 @@ def test_zenodo_test_does_not_download_archive(monkeypatch):
     assert response.status_code == 200
     data = response.json()["data"]
     assert data["status"] == "available"
-    assert data["filesFound"] == 1
-    assert data["sampleRecords"][0]["incident_id"] == "INC-1"
-    assert len(calls) == 2
+    # metadata-only probe: should list files but not download content
+    assert data["filesFound"] == 2
+    assert "sampleRecords" not in data or not data.get("sampleRecords")
+    # only the metadata record request should have been made
+    assert len(calls) == 1
 
 
 def test_zenodo_inspect_accepts_json_payload(monkeypatch):

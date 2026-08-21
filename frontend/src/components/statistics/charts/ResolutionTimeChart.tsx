@@ -11,15 +11,6 @@ const ResolutionTimeChart: React.FC<ResolutionTimeChartProps> = ({ data }) => {
   // ECharts horizontal bar draws from bottom to top, so we reverse it to have Critical on top
   const sortedData = [...data].reverse();
 
-  const getSeverityColor = (level: string) => {
-    switch (level) {
-      case 'Critical': return '#ef4444'; // red
-      case 'High': return '#f97316'; // orange
-      case 'Medium': return '#10b981'; // green/lime
-      case 'Low': return '#9ca3af'; // neutral/gray
-      default: return '#9ca3af';
-    }
-  };
 
   const option = {
     tooltip: {

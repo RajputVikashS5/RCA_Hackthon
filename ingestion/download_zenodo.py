@@ -9,15 +9,24 @@ import requests
 DEFAULT_RECORD = "https://zenodo.org/api/records/15719919"
 
 
+def select_dataset_archive(files: list[dict]) -> dict:
+    candidates = [item for item in files if str(item.get("key", "")).lower().endswith(".zip")]
+    if not candidates:
+        raise RuntimeError("Zenodo record has no MongoDB ZIP archive.")
+    candidates.sort(key=lambda item: (
+        "publicjiradataset" not in str(item.get("key", "")).lower(),
+        -int(item.get("size") or 0),
+    ))
+    return candidates[0]
+
+
 def download_latest(output_dir: Path, record_url: str = DEFAULT_RECORD) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     metadata = requests.get(record_url, timeout=60)
     metadata.raise_for_status()
     record = metadata.json()
     files = record.get("files", [])
-    if not files:
-        raise RuntimeError("Zenodo record has no downloadable files.")
-    file_info = files[0]
+    file_info = select_dataset_archive(files)
     target = output_dir / file_info["key"]
     if not target.exists():
         with requests.get(file_info["links"]["self"], stream=True, timeout=120) as response:

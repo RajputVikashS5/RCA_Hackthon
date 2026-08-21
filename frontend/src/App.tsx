@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import './App.css';
-import { analyzeIncident, testZenodoConnection } from './api';
+import { analyzeIncident, getIngestionStatus, getZenodoStatus, inspectZenodoDataset } from './api';
 
 function App() {
   const [description, setDescription] = useState('');
@@ -14,6 +14,8 @@ function App() {
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [zenodoLoading, setZenodoLoading] = useState(false);
   const [zenodoResult, setZenodoResult] = useState<any>(null);
+  const [inspectionResult, setInspectionResult] = useState<any>(null);
+  const [ingestionResult, setIngestionResult] = useState<any>(null);
   const [zenodoError, setZenodoError] = useState<string | null>(null);
 
   const handleAnalyze = async (e: React.FormEvent) => {
@@ -46,7 +48,31 @@ function App() {
     setZenodoError(null);
     setZenodoResult(null);
     try {
-      setZenodoResult(await testZenodoConnection());
+      setZenodoResult(await getZenodoStatus());
+    } catch (err: any) {
+      setZenodoError(err.message);
+    } finally {
+      setZenodoLoading(false);
+    }
+  };
+
+  const handleInspect = async () => {
+    setZenodoLoading(true);
+    setZenodoError(null);
+    try {
+      setInspectionResult(await inspectZenodoDataset());
+    } catch (err: any) {
+      setZenodoError(err.message);
+    } finally {
+      setZenodoLoading(false);
+    }
+  };
+
+  const handleIngestionStatus = async () => {
+    setZenodoLoading(true);
+    setZenodoError(null);
+    try {
+      setIngestionResult(await getIngestionStatus());
     } catch (err: any) {
       setZenodoError(err.message);
     } finally {
@@ -78,24 +104,34 @@ function App() {
             {/* Main Column */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '48px' }}>
               <div className="product-mockup-card">
-                <h3 className="title-lg" style={{ marginBottom: '12px' }}>Zenodo Connection</h3>
-                <p className="body-sm text-muted">Read-only test for the configured public Zenodo record.</p>
+                <h3 className="title-lg" style={{ marginBottom: '12px' }}>Dataset Connection</h3>
+                <p className="body-sm text-muted">Zenodo is the historical source for offline ingestion, not the live knowledge base.</p>
                 <button type="button" className="button-primary" style={{ marginTop: '20px' }} onClick={handleZenodoTest} disabled={zenodoLoading}>
-                  {zenodoLoading ? 'Testing Zenodo...' : 'Test Zenodo Connection'}
+                  {zenodoLoading ? 'Checking dataset...' : 'Check Dataset Status'}
                 </button>
+                <button type="button" className="button-secondary" style={{ marginTop: '20px', marginLeft: '12px' }} onClick={handleInspect} disabled={zenodoLoading}>Inspect Dataset</button>
+                <button type="button" className="button-secondary" style={{ marginTop: '20px', marginLeft: '12px' }} onClick={handleIngestionStatus} disabled={zenodoLoading}>Test Ingestion Status</button>
                 {zenodoError && <div style={{ color: 'var(--error)', marginTop: '16px' }} className="body-sm">{zenodoError}</div>}
                 {zenodoResult && (
                   <div style={{ marginTop: '20px' }}>
-                    <div className="body-sm"><strong>Status:</strong> {zenodoResult.connection}</div>
-                    <div className="body-sm"><strong>Record:</strong> {zenodoResult.recordTitle}</div>
-                    <div className="body-sm"><strong>Files:</strong> {zenodoResult.filesFound}</div>
-                    <div className="body-sm"><strong>Dataset:</strong> {zenodoResult.datasetFile || 'No public dataset file found'}</div>
-                    <div className="body-sm"><strong>Sample records:</strong> {zenodoResult.sampleRecords?.length || 0}</div>
-                    {zenodoResult.sampleRecords?.length > 0 && (
-                      <div style={{ overflowX: 'auto', marginTop: '12px' }}>
-                        <table><tbody>{zenodoResult.sampleRecords.map((record: any, index: number) => (
-                          <tr key={index}><td>{record.incident_id || record.id || `Record ${index + 1}`}</td><td>{record.title || record.summary || ''}</td></tr>
-                        ))}</tbody></table>
+                    <div className="body-sm"><strong>Status:</strong> {zenodoResult.metadata_access}</div>
+                    <div className="body-sm"><strong>Record:</strong> {zenodoResult.title}</div>
+                    <div className="body-sm"><strong>Version:</strong> {zenodoResult.version || 'Not reported'}</div>
+                    <div className="body-sm"><strong>Archive:</strong> {zenodoResult.dataset_archive?.name || 'Unavailable'}</div>
+                    <div className="body-sm"><strong>Archive available:</strong> {zenodoResult.dataset_archive?.available ? 'Yes' : 'No'}</div>
+                    <div className="body-sm"><strong>Files:</strong> {zenodoResult.files?.length || 0}</div>
+                    {inspectionResult && (
+                      <div style={{ marginTop: '16px' }}>
+                        <div className="body-sm"><strong>Collections:</strong> {inspectionResult.collections?.join(', ') || 'None discovered'}</div>
+                        <div className="body-sm"><strong>Sample records:</strong> {inspectionResult.sample_count || 0}</div>
+                        <div className="body-sm"><strong>Fields:</strong> {inspectionResult.fields?.join(', ') || 'None discovered'}</div>
+                      </div>
+                    )}
+                    {ingestionResult && (
+                      <div style={{ marginTop: '16px' }}>
+                        <div className="body-sm"><strong>Knowledge base:</strong> {ingestionResult.knowledge_base?.database || 'Unavailable'}</div>
+                        <div className="body-sm"><strong>Indexed incidents:</strong> {ingestionResult.knowledge_base?.incident_records ?? 0}</div>
+                        <div className="body-sm"><strong>Ingestion:</strong> {ingestionResult.status}</div>
                       </div>
                     )}
                   </div>

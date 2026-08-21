@@ -14,7 +14,7 @@ Zenodo Public Jira Dataset
 
 The raw Jira dataset and generated embeddings remain outside this Git repository. FastAPI never downloads Zenodo during normal RCA queries.
 
-The read-only Zenodo probe is available at `GET /api/zenodo/test`. It fetches record metadata and, when the record exposes a supported public file, downloads and parses a small cached sample. It never writes Zenodo data to PostgreSQL.
+Zenodo is an external source dataset, not the application's live database. Metadata is available through `GET /api/zenodo/status`; bounded inspection is available through `POST /api/zenodo/inspect` only after the archive has been explicitly downloaded locally. Normal RCA requests never access Zenodo.
 
 ## Features
 
@@ -39,11 +39,14 @@ Create `backend/.env` from `.env.example`:
 ```text
 DATABASE_URL=postgresql://username:password@host:5432/database
 GOOGLE_API_KEY=your_gemini_api_key
-ZENODO_RECORD_ID=7182101
+ZENODO_RECORD_ID=15719919
 ZENODO_API_URL=https://zenodo.org/api/records
 ZENODO_CACHE_TTL=3600
 ZENODO_REQUEST_TIMEOUT=30
 ZENODO_SAMPLE_SIZE=5
+INGEST_BATCH_SIZE=100
+INGEST_MAX_RECORDS=1000
+JIRA_DATA_DIR=C:/external/jira-data
 ```
 
 The default embedding model is `sentence-transformers/all-MiniLM-L6-v2`, which produces 384-dimensional normalized vectors. PostgreSQL must allow `CREATE EXTENSION vector`.
@@ -55,15 +58,16 @@ cd backend
 python -m app.database.init_db
 ```
 
-Download and inspect the dataset outside the repository. The current open anonymized release is Zenodo v7 at `https://zenodo.org/records/15719919`; it contains a roughly 5.8 GB MongoDB archive.
+Download and inspect the dataset outside the repository. The current open anonymized release is Zenodo v7 at `https://zenodo.org/records/15719919`; it contains a roughly 5.8 GB MongoDB ZIP archive. Do not use restricted record `7182101`, and do not place the archive in Git.
 
 ```bash
-python ingestion/download_zenodo.py --output-dir C:/data/public-jira
-python ingestion/inspect_dataset.py C:/data/public-jira
-python ingestion/load_postgres.py C:/data/public-jira/export --max-records 50000 --batch-size 100
+python ingestion/download_zenodo.py --output-dir C:/external/jira-data
+python ingestion/inspect_dataset.py C:/external/jira-data/2025-06-23\ ThePublicJiraDataset.zip --sample-size 5
+python ingestion/pipeline.py C:/external/jira-data/2025-06-23\ ThePublicJiraDataset.zip --max-records 100 --batch-size 100
+python ingestion/pipeline.py C:/external/jira-data/2025-06-23\ ThePublicJiraDataset.zip --max-records 1000 --batch-size 100
 ```
 
-The loader processes batches, deduplicates by `incident_id`, and updates existing database rows on reruns. It does not fabricate missing root causes or resolutions. `INGEST_MAX_RECORDS` and `INGEST_BATCH_SIZE` control development scale.
+The pipeline locates the Jira issue BSON collection inside the ZIP, processes bounded streaming batches, deduplicates by `incident_id`, generates normalized 384-dimensional embeddings, and upserts through the existing PostgreSQL + pgvector repository. It does not fabricate missing root causes or resolutions. `INGEST_MAX_RECORDS` and `INGEST_BATCH_SIZE` control development scale.
 
 Start the services:
 
@@ -72,7 +76,7 @@ cd backend
 python -m uvicorn app.main:app --reload
 
 cd frontend
-streamlit run app.py
+npm run dev
 ```
 
 ## API
@@ -81,7 +85,9 @@ streamlit run app.py
 - `POST /api/incidents/similar` retrieves the top five historical matches.
 - `POST /api/incidents/analyze` retrieves evidence and generates an RCA.
 - `POST /api/incidents/upload` is disabled; dataset management belongs to the offline ingestion pipeline.
-- `GET /api/zenodo/test` checks the public Zenodo record and returns metadata plus sample records when a supported downloadable file is available.
+- `GET /api/zenodo/status` reports metadata access, archive availability, all files, sizes, and download URLs.
+- `POST /api/zenodo/inspect` inspects a bounded sample of a locally downloaded ZIP/BSON archive.
+- `GET /api/zenodo/ingestion/status` reports the database knowledge-base status and confirms that ingestion is an explicit offline operation.
 
 ## Data and security
 

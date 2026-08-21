@@ -1,81 +1,16 @@
-const BACKEND_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
-
-export async function testZenodoConnection() {
-  const response = await fetch(`${BACKEND_URL}/api/zenodo/test`);
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(payload.detail?.error || payload.detail || `Zenodo test failed with status ${response.status}`);
-  }
-  return payload;
-}
-
-export async function getZenodoStatus() {
-  const response = await fetch(`${BACKEND_URL}/api/zenodo/status`);
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(payload.detail?.error || payload.detail || `Zenodo status failed with status ${response.status}`);
-  }
-  return payload;
-}
-
-export async function inspectZenodoDataset(sampleSize = 5) {
-  const response = await fetch(`${BACKEND_URL}/api/zenodo/inspect`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ sample_size: sampleSize }),
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(payload.detail?.error || payload.detail || `Dataset inspection failed with status ${response.status}`);
-  }
-  return payload;
-}
-
-export async function getIngestionStatus() {
-  const response = await fetch(`${BACKEND_URL}/api/zenodo/ingestion/status`);
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(payload.detail?.error || payload.detail || `Ingestion status failed with status ${response.status}`);
-  }
-  return payload;
-}
-
-export async function uploadDataset(file: File) {
-  const formData = new FormData();
-  formData.append("file", file);
-  
-  const response = await fetch(`${BACKEND_URL}/api/incidents/upload`, {
-    method: "POST",
-    body: formData,
-  });
-  
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.detail || `Upload failed with status ${response.status}`);
-  }
-  return response.json();
-}
-
-export async function analyzeIncident(payload: {
-  description: string;
-  component?: string;
-  severity?: string;
-  environment?: string;
-  incident_type?: string;
-}) {
-  const response = await fetch(`${BACKEND_URL}/api/incidents/analyze`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  });
-  
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.detail || `Analysis failed with status ${response.status}`);
-  }
-  return response.json();
-}
+/** Empty in development uses Vite's proxy. Set VITE_API_BASE_URL for a deployed API. */
+const BACKEND_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '')
+export type IncidentInput = { description: string; component?: string; severity?: string; environment?: string; incident_type?: string }
+export type SimilarIncident = { incident_id: string; title?: string; description?: string; root_cause?: string | null; resolution?: string | null; similarity_score: number; metadata?: Record<string, unknown> }
+export type AnalysisResult = { analysis_id?: string; root_cause?: string; resolution?: string; evidence_incidents?: Pick<SimilarIncident, 'incident_id' | 'similarity_score'>[]; evidence_strength?: string; summary?: string; similar_incidents?: SimilarIncident[] }
+export type StoredAnalysis = { id: string; created_at: string; input: IncidentInput; result: AnalysisResult }
+export type ZenodoProbe = { success: true; data: { source: 'zenodo'; status: 'available' | 'restricted' | 'unavailable'; recordId: string; metadataAvailable: boolean; filesAvailable: boolean; message: string } }
+function messageFrom(payload: unknown, fallback: string) { if (!payload || typeof payload !== 'object') return fallback; const detail = (payload as { detail?: unknown }).detail; if (typeof detail === 'string') return detail; if (detail && typeof detail === 'object' && typeof (detail as { error?: unknown }).error === 'string') return (detail as { error: string }).error; return fallback }
+async function request<T>(path: string, options?: RequestInit): Promise<T> { try { const response = await fetch(`${BACKEND_URL}${path}`, options); const payload = await response.json().catch(() => ({})); if (!response.ok) { if (response.status === 400) throw new Error(messageFrom(payload, 'Incident description cannot be empty.')); if (response.status === 401) throw new Error('Your session is no longer authorized.'); if (response.status === 403) throw new Error('You are not authorized to perform this action.'); if (response.status === 404) throw new Error('The requested RCA resource was not found.'); if (response.status === 429) throw new Error('The service is rate limited. Please try again shortly.'); if (response.status === 503) throw new Error('RCA services are currently unavailable. Please retry shortly.'); if (response.status === 502) throw new Error(messageFrom(payload, 'RCA analysis is temporarily unavailable. Please try again.')); throw new Error(messageFrom(payload, `Request failed (${response.status}).`)) } return payload } catch (error) { if (error instanceof TypeError) throw new Error('Unable to connect to RCA backend.'); throw error } }
+export const analyzeIncident = (payload: IncidentInput) => request<AnalysisResult>('/api/incidents/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+export const getSimilarIncidents = (payload: IncidentInput) => request<{ incidents: SimilarIncident[] }>('/api/incidents/similar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+export const getHealth = () => request<Record<string, unknown>>('/api/health')
+export const testZenodoConnection = () => request<ZenodoProbe>('/api/zenodo/test')
+export const getAnalysisHistory = () => request<StoredAnalysis[]>('/api/analyses')
+export const getAnalysis = (id: string) => request<StoredAnalysis>(`/api/analyses/${id}`)
+export const deleteAnalysis = (id: string) => request<void>(`/api/analyses/${id}`, { method: 'DELETE' })

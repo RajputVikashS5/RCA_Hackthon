@@ -1,10 +1,7 @@
-from typing import Any
-
-from fastapi import APIRouter, Body, HTTPException, Query, status
+from fastapi import APIRouter, Query
 
 from app.config import ZENODO_RECORD_ID, ZENODO_SAMPLE_SIZE
-from app.database.connection import get_database_status
-from app.services.zenodo_service import ZenodoService, ZenodoServiceError
+from app.services.zenodo_service import ZenodoService
 
 
 router = APIRouter(prefix="/api/zenodo", tags=["Zenodo"])
@@ -112,35 +109,6 @@ async def test_zenodo_connection(
     record_id: str = Query(default=ZENODO_RECORD_ID),
     sample_size: int = Query(default=ZENODO_SAMPLE_SIZE, ge=0, le=20),
 ):
-    try:
-        return service.test_connection(record_id, sample_size)
-    except ZenodoServiceError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail={
-                "success": False,
-                "source": "Zenodo",
-                "recordId": record_id,
-                "connection": "failed",
-                "error": str(exc),
-            },
-        ) from exc
-
-
-@router.get("/info")
-async def get_zenodo_info(
-    record_id: str = Query(default=ZENODO_RECORD_ID),
-):
-    try:
-        return service.get_record_info(record_id)
-    except ZenodoServiceError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail={
-                "success": False,
-                "source": "Zenodo",
-                "recordId": record_id,
-                "connection": "failed",
-                "error": str(exc),
-            },
-        ) from exc
+    # This endpoint is a source probe, not a dependency of RCA. Expected source
+    # states (restricted or unavailable) are returned as a successful check.
+    return service.test_connection(record_id, sample_size)

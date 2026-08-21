@@ -3,6 +3,7 @@ from app.config import DEFAULT_TOP_K
 from app.models.schemas import IncidentAnalysisRequest, IncidentAnalysisResponse
 from app.services.llm import GeminiLLM
 from app.services.retriever import Retriever
+from app.database.analysis_repository import AnalysisRepository
 from fastapi import APIRouter, HTTPException, status
 
 router = APIRouter(
@@ -12,6 +13,7 @@ router = APIRouter(
 
 retriever = Retriever()
 llm = GeminiLLM()
+analysis_repository = AnalysisRepository()
 
 
 def _build_incident_query(request: IncidentAnalysisRequest) -> str:
@@ -49,7 +51,13 @@ async def analyze_incident(request: IncidentAnalysisRequest):
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
-    return IncidentAnalysisResponse(
+    response = IncidentAnalysisResponse(
         similar_incidents=retrieved_incidents,
         **analysis,
     )
+    try:
+        stored = analysis_repository.create(request.model_dump(), response.model_dump())
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="RCA analysis completed, but could not be saved to history.") from exc
+    response.analysis_id = stored["id"]
+    return response

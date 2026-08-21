@@ -29,17 +29,19 @@ class GeminiLLM:
 
         prompt = self._build_prompt(incident, retrieved_incidents)
 
-        response = self.client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                temperature=0.2,
-                response_mime_type="application/json",
-            ),
-        )
-
-        response_text = getattr(response, "text", "") or ""
-        parsed = self._parse_json_response(response_text)
+        try:
+            response = self.client.models.generate_content(
+                model=GEMINI_MODEL,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    temperature=0.2,
+                    response_mime_type="application/json",
+                ),
+            )
+            response_text = getattr(response, "text", "") or ""
+            parsed = self._parse_json_response(response_text)
+        except Exception as exc:
+            raise RuntimeError("Gemini RCA generation failed.") from exc
         return self._finalize_response(parsed, retrieved_incidents)
 
     def _build_prompt(self, incident: Dict[str, Any], retrieved_incidents: List[Dict[str, Any]]) -> str:
@@ -210,42 +212,3 @@ Output JSON schema:
             "summary": self._fallback_summary(),
             "evidence_incidents": evidence_incidents,
         }
-
-        prompt = f"""
-You are an expert AI assistant.
-
-use ONLY from the provided context.
-
-If the answer can not be found, reply:
-
-"I could not find the answer in the uploaded documents."
-
-For every answer:
-
-1. Give us clear explanation.
-2. Use bullet points if needed.
-3. At teh end mention the source file(s) and page number(s) used.
-
-Conversation History:
-{conversation}
-
-Context:
-
-{context}
-
-Question:
-
-{question}
-
-Answer:
-"""
-
-        response = self.client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                temperature=0.2
-            )
-        )
-
-        return response.text

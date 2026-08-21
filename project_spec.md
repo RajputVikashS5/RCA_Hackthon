@@ -1,333 +1,84 @@
-# Enterprise Incident RCA Assistant — Project Specification
+# Enterprise Incident RCA Assistant - Project Specification
 
-This repository is an existing FastAPI + Streamlit RAG application that has been transformed from generic PDF question answering into an **Enterprise Incident Root Cause Analysis (RCA) Assistant**.
+## Product goal
 
-The project goal is to help support engineers analyze a newly reported incident, retrieve the most similar historical incidents, and generate a concise RCA recommendation grounded in historical evidence.
-
-## Current Product Shape
-
-Primary workflow:
-
-```text
-Historical Incident Dataset
-        ↓
-Validation + Cleaning + Normalization
-        ↓
-Incident Records
-        ↓
-Search Text + Embeddings
-        ↓
-FAISS Vector Store
-        ↓
-New Incident Analysis
-        ↓
-Top 5 Similar Historical Incidents
-        ↓
-Gemini RCA Summary
-```
-
-The legacy PDF ingestion utilities are kept as reusable building blocks, but the RCA incident workflow is the primary product path.
+The application analyzes a newly reported incident, retrieves the five most similar historical Jira incidents, and produces an evidence-grounded RCA with Google Gemini.
 
 ## Architecture
 
-Backend:
-
-- FastAPI application in [backend/app/main.py](backend/app/main.py)
-- Pydantic models in [backend/app/models/schemas.py](backend/app/models/schemas.py)
-- Configuration in [backend/app/config.py](backend/app/config.py)
-- Service layer in [backend/app/services/](backend/app/services)
-
-Frontend:
-
-- Streamlit app in [frontend/app.py](frontend/app.py)
-
-Storage:
-
-- Uploaded incident datasets are stored under [backend/app/data/](backend/app/data)
-- FAISS index and metadata are stored under [backend/app/vector_db/](backend/app/vector_db)
-
-## Data Model
-
-Required incident fields:
-
-- `incident_id`
-- `title`
-- `description`
-- `root_cause`
-- `resolution`
-
-Optional fields supported by the ingestion pipeline:
-
-- `component`
-- `service`
-- `severity`
-- `environment`
-- `incident_type`
-- `date`
-- `status`
-- `tags`
-
-An incident record is normalized into a searchable text representation and also preserved as structured metadata.
-
-## Ingestion Workflow
-
-Supported input formats:
-
-- CSV as the primary format
-- JSON and Excel when available through pandas readers
-
-Ingestion behavior:
-
-- Validate required columns
-- Normalize column names and whitespace
-- Drop empty or invalid rows
-- Preserve incident IDs, root causes, and resolutions
-- Deduplicate by `incident_id`
-- Build a searchable incident text block
-- Generate embeddings for the combined representation
-- Persist FAISS index plus metadata
-
-The incident text representation is derived from the full record, not arbitrary chunking.
-
-## Embeddings
-
-The project reuses the existing SentenceTransformer-based embedding model in [backend/app/services/embedding.py](backend/app/services/embedding.py).
-
-Current implementation choice:
-
-- Model: `sentence-transformers/all-MiniLM-L6-v2`
-- Embeddings are L2-normalized before indexing and querying
-- FAISS uses `IndexFlatL2`
-- Returned FAISS distances are converted to cosine similarity using:
-
 ```text
-similarity = 1 - (squared_l2_distance / 2)
+Zenodo Public Jira Dataset
+        -> offline inspection and ingestion
+        -> Jira-to-incident transformation
+        -> batch embedding generation
+        -> cloud PostgreSQL + pgvector
+        -> cosine Top-5 retrieval
+        -> Gemini evidence-grounded RCA
+        -> FastAPI
+        -> Streamlit
 ```
 
-Because this is a normalized similarity score rather than a probability, the UI displays it as a similarity value instead of a percentage unless explicitly formatted for presentation.
+The raw Zenodo dataset is external and must remain outside the repository. Normal FastAPI startup and RCA requests never download Zenodo or read local Jira files.
 
-## Retrieval
+## Dataset
 
-Retrieval returns the top 5 most similar historical incidents.
+The source is the open anonymized v7 Public Jira Dataset, currently published at `https://zenodo.org/records/15719919` and referenced by the project configuration. The older record `https://zenodo.org/records/7182101` is restricted; it is retained only as the requested record history.
 
-Each result includes:
+The v7 download is a large ZIP containing a MongoDB archive. The offline scripts therefore download only when explicitly invoked and expect a local export or JSON/JSONL representation for transformation. Raw archives and exports are ignored and should preferably live outside the repository entirely.
 
-- `incident_id`
-- `title`
-- `description`
-- `root_cause`
-- `resolution`
-- `similarity_score`
-- `metadata`
+## Database
 
-Only the retrieved incidents are passed into Gemini. The full dataset is never sent to the model.
+Configuration uses the provider-neutral `DATABASE_URL` PostgreSQL connection string. `backend/app/database/connection.py` lazily creates a psycopg connection pool. `backend/app/database/init_db.py` is the reproducible initialization command.
 
-## Gemini RCA Strategy
+Initialization creates `vector` once, creates the `incidents` table, and creates an HNSW index using `vector_cosine_ops`. The selected `sentence-transformers/all-MiniLM-L6-v2` model is normalized and produces 384 dimensions, so the embedding column is `VECTOR(384)`. The dimension is configured and validated rather than assumed by retrieval.
 
-Gemini is used for evidence-grounded RCA synthesis, not free-form document Q&A.
+The schema contains:
 
-Prompt behavior:
+- `id BIGSERIAL PRIMARY KEY`
+- unique, required `incident_id`
+- title, description, nullable root_cause and resolution
+- comments, project, component, service, severity, environment, incident_type, status
+- created_at, updated_at, source, source_url
+- JSONB metadata
+- 384-dimensional embedding
 
-- Analyze the new incident description
-- Review retrieved historical incidents
-- Identify the most likely root cause
-- Recommend a resolution
-- Cite supporting incident IDs
-- Distinguish evidence from inference
-- Avoid inventing incidents, causes, or resolutions
-- State when evidence is insufficient
+`IncidentRepository.upsert_batch` updates rows on `incident_id` conflicts. `search` orders by pgvector cosine distance and returns `1 - distance` as a cosine similarity score, without percentage conversion.
 
-The backend expects a structured RCA response and falls back to a safe no-evidence response if the model output is invalid or historical evidence is weak.
+## Ingestion
 
-## API Contract
+The independent `ingestion/` package contains:
 
-Primary endpoints:
+- `download_zenodo.py`: explicit, cached download of the latest open release
+- `inspect_dataset.py`: local file inventory and lightweight JSON samples
+- `process_jira.py`: streaming JSON/JSONL transformation, configurable project and record limit
+- `transform_incidents.py`: conservative extraction from fields, comments, status, resolution, components, project, and metadata
+- `generate_embeddings.py` and `load_postgres.py`: batch embedding and database upsert path
 
-- `POST /api/incidents/upload` uploads and indexes a historical incident dataset
-- `POST /api/incidents/analyze` analyzes a new incident and returns RCA output
-- `POST /api/incidents/similar` returns the top 5 similar incidents without Gemini
-- `GET /api/health` reports service health
+The default development limit is 50,000 records and the default batch size is 100. `incident_id` deduplication happens before upsert; reruns are resumable through database conflict updates. Missing root-cause evidence remains `NULL`; ingestion never asks Gemini to invent historical facts.
 
-Legacy document-oriented routes are not the primary workflow anymore.
+The searchable text includes incident ID, title, description, comments, any explicit root cause, resolution, and relevant metadata. The same embedding model and normalization are used for indexing and querying.
 
-## Frontend
+## Runtime API
 
-The Streamlit UI is an incident RCA dashboard:
+- `GET /api/health`: API health plus database connection, vector extension, incident count, dimension, and vector-search status.
+- `POST /api/incidents/similar`: embed the submitted incident and return up to five PostgreSQL matches.
+- `POST /api/incidents/analyze`: retrieve matches, pass only those matches to Gemini, and return root cause, resolution, evidence strength, supporting IDs, similar incidents, and summary.
+- `POST /api/incidents/upload`: disabled for normal runtime use; the offline ingestion command owns dataset management.
 
-- Dataset upload panel
-- New incident analysis form
-- Top 5 similar incidents view
-- RCA result summary
-- Evidence-oriented display of incident IDs, similarity, root causes, and resolutions
+The Streamlit UI contains only the incident form, RCA results, and a knowledge-base status panel. It does not upload Zenodo data.
 
-## Error Handling
+## Gemini behavior
 
-The backend handles or should handle the following gracefully:
+Gemini receives the new incident and only the retrieved historical evidence. The prompt requires evidence/inference distinction, valid supporting IDs, and an insufficient-evidence response. It must not invent incident IDs, historical causes, or resolutions.
 
-- Missing Gemini API key
-- Invalid or empty dataset
-- Missing required columns
-- Duplicate incident IDs
-- Empty incident description
-- Uninitialized FAISS index
-- Embedding failures
-- Gemini API failures
-- Invalid Gemini JSON responses
-- No sufficiently relevant historical incidents
+## Migration status and compatibility
 
-User-facing errors must not expose secrets, raw stack traces, or `.env` contents.
-
-## Testing
-
-The repository now needs a proper pytest suite covering:
-
-- Ingestion validation and deduplication
-- Retrieval ranking and similarity scoring
-- RCA generation and fallback behavior
-- API upload, analyze, similar, and health endpoints
-
-Tests should avoid network access and mock Gemini plus embedding-heavy code where appropriate.
+The old FAISS modules remain in the repository temporarily as migration-era code and as historical test references, but they are no longer imported by the production retrieval path. Once PostgreSQL/pgvector has been validated in the configured cloud environment, `vector_store.py`, `rag_pipeline.py`, `faiss-cpu`, and stale FAISS tests can be removed in a separate cleanup pass.
 
 ## Security
 
-Secrets and generated artifacts must remain untracked.
+Secrets are loaded from environment variables and are never returned by health endpoints. `.env`, raw data, archives, exports, processed files, and generated vector artifacts are ignored. Database errors return generic status details rather than connection strings.
 
-Important exclusions:
+## Validation plan
 
-- `.env`
-- API keys
-- credentials
-- private datasets
-- generated FAISS artifacts
-
-## Files Reused From the Original Project
-
-The following modules are intentionally reused and extended rather than replaced:
-
-- [backend/app/services/embedding.py](backend/app/services/embedding.py)
-- [backend/app/services/vector_store.py](backend/app/services/vector_store.py)
-- [backend/app/services/retriever.py](backend/app/services/retriever.py)
-- [backend/app/services/llm.py](backend/app/services/llm.py)
-- [backend/app/services/rag_pipeline.py](backend/app/services/rag_pipeline.py)
-
-## Major Design Decisions
-
-- The system remains a single FastAPI backend plus one Streamlit frontend.
-- FAISS stays the vector store.
-- Google Gemini remains the LLM.
-- The primary knowledge source is historical incidents, not generic PDFs.
-- Similarity is reported as a normalized similarity score derived from normalized FAISS distances.
-- The output is evidence-first RCA, not open-ended chat.
-
-## Change Log
-
-- Initial transform from PDF Q&A to incident RCA assistant
-- Introduced incident ingestion and top-5 retrieval requirements
-- Defined normalized FAISS similarity scoring
-- Shifted Gemini usage to structured RCA generation
-- Aligned backend, Streamlit UI, and pytest coverage with the incident RCA workflow
-       ↓
-15. Add tests
-       ↓
-16. Update README
-       ↓
-17. Update PROJECT_SPEC.md
-       ↓
-18. Run and verify complete application
-```
-
----
-
-# PHASE 21 — IMPORTANT DEVELOPMENT BEHAVIOR
-
-Before editing a file, inspect its current contents.
-
-Do not assume the repository matches the example architecture.
-
-Use the actual existing code as the source for implementation.
-
-If the existing architecture differs from this specification:
-
-* Prefer the existing architecture when it is sound.
-* Adapt the specification to the actual implementation.
-* Document the final decision in `PROJECT_SPEC.md`.
-
-Do not duplicate existing functionality.
-
-Do not create files with overlapping responsibilities.
-
-Keep functions small and understandable.
-
-Use environment variables for secrets.
-
-Keep the application runnable after each major phase.
-
----
-
-# PHASE 22 — FINAL VALIDATION
-
-After implementation, verify:
-
-```text
-[ ] Application starts successfully
-[ ] FastAPI starts successfully
-[ ] Swagger works
-[ ] Streamlit starts successfully
-[ ] Historical CSV uploads successfully
-[ ] Dataset is validated
-[ ] Embeddings are generated
-[ ] FAISS index is created
-[ ] New incident can be entered
-[ ] Top 5 similar incidents appear
-[ ] Similarity scores appear
-[ ] Historical root causes appear
-[ ] Historical resolutions appear
-[ ] Gemini generates RCA
-[ ] RCA contains likely root cause
-[ ] RCA contains recommended resolution
-[ ] RCA contains evidence
-[ ] RCA contains concise summary
-[ ] Error cases are handled
-[ ] README is updated
-[ ] PROJECT_SPEC.md is updated
-[ ] No API keys are committed
-```
-
-If possible, perform a complete end-to-end test using a sample incident dataset.
-
----
-
-# FINAL GOAL
-
-The final application must no longer feel like a generic:
-
-```text
-"Chat with your PDFs"
-```
-
-It should clearly function as:
-
-```text
-        ENTERPRISE INCIDENT
-                ↓
-        SEMANTIC SEARCH
-                ↓
-     TOP 5 HISTORICAL INCIDENTS
-                ↓
-       ROOT CAUSE EVIDENCE
-                ↓
-        GEMINI RAG ANALYSIS
-                ↓
-        ┌─────────────────┐
-        │ Likely Root     │
-        │ Cause           │
-        │                 │
-        │ Resolution      │
-        │                 │
-        │ Evidence        │
-        │                 │
-        │ RCA Summary     │
-        └─────────────────┘
-```
-
-The final product should directly satisfy the KIET Root Cause Analysis use case while preserving as much of the existing Enterprise RAG implementation as reasonably possible.
+Tests must cover transformation with missing fields, filtering, deduplication, batch behavior, repository upsert/search with a mocked connection, health behavior without credentials, Top-5 ordering, no-result behavior, Gemini failure/fallback, and API contracts. Cloud-specific extension and retrieval tests must run against a PostgreSQL instance with pgvector configured.

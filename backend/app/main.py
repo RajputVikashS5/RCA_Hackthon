@@ -3,6 +3,7 @@ from app.api.test_retriever import router as retriever_router
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.upload import router as upload_router
+from app.database.connection import get_database_status
 
 app = FastAPI(
     title="Enterprise Incident RCA Assistant",
@@ -32,13 +33,13 @@ async def home():
 
 @app.get("/api/health")
 async def api_health():
+    database = get_database_status()
     return {
-        "status": "Healthy"
+        "status": "Healthy",
+        **database,
     }
 
 
 @app.get("/health")
 async def health():
-    return {
-        "status": "Healthy"
-    }
+    return await api_health()

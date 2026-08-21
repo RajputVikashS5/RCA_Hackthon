@@ -38,9 +38,7 @@ async def retrieve_similar_incidents(request: IncidentAnalysisRequest):
 
     try:
         incidents = retriever.retrieve(incident_query, top_k=DEFAULT_TOP_K)
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="FAISS index is not initialized. Upload a historical incident dataset first.") from exc
     except RuntimeError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
 
     return SimilarIncidentResponse(incidents=incidents)

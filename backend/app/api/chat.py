@@ -39,10 +39,8 @@ async def analyze_incident(request: IncidentAnalysisRequest):
 
     try:
         retrieved_incidents = retriever.retrieve(incident_query, top_k=DEFAULT_TOP_K)
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="FAISS index is not initialized. Upload a historical incident dataset first.") from exc
     except RuntimeError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
 
     try:
         analysis = llm.generate_rca(request.model_dump(), retrieved_incidents)

@@ -9,6 +9,7 @@ backend/venv/
 
 # Environment Variables
 .env
+*.env
 
 # Streamlit Cache
 .streamlit/
@@ -21,6 +22,16 @@ backend/app/vector_db/
 
 # Uploaded Incident Datasets
 backend/app/data/incidents/
+data/raw/
+data/processed/
+*.zip
+*.tar
+*.gz
+
+# Local ingestion and generated database exports
+ingestion/.cache/
+*.parquet
+*.arrow
 
 # OS Files
 .DS_Store

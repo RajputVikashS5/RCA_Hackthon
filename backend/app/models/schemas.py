@@ -7,8 +7,8 @@ class IncidentRecord(BaseModel):
     incident_id: str
     title: str
     description: str
-    root_cause: str
-    resolution: str
+    root_cause: Optional[str] = None
+    resolution: Optional[str] = None
     component: Optional[str] = None
     service: Optional[str] = None
     severity: Optional[str] = None
@@ -42,8 +42,8 @@ class SimilarIncident(BaseModel):
     incident_id: str
     title: str
     description: str
-    root_cause: str
-    resolution: str
+    root_cause: Optional[str] = None
+    resolution: Optional[str] = None
     similarity_score: float
     metadata: Dict[str, Any] = Field(default_factory=dict)
 

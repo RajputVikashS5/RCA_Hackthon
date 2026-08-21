@@ -73,7 +73,7 @@ def test_successful_gemini_rca_response_is_parsed_and_grounded():
     assert result["evidence_incidents"][0]["incident_id"] == "INC-1001"
 
 
-def test_invalid_gemini_response_raises_value_error():
+def test_invalid_gemini_response_is_sanitized_as_runtime_failure():
     llm = GeminiLLM()
     llm.client = FakeGeminiClient("not valid json")
 
@@ -89,7 +89,7 @@ def test_invalid_gemini_response_raises_value_error():
         }
     ]
 
-    with pytest.raises(ValueError):
+    with pytest.raises(RuntimeError, match="Gemini RCA generation failed"):
         llm.generate_rca({"description": "HTTP 500 errors"}, retrieved)
 
 

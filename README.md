@@ -14,6 +14,8 @@ Zenodo Public Jira Dataset
 
 The raw Jira dataset and generated embeddings remain outside this Git repository. FastAPI never downloads Zenodo during normal RCA queries.
 
+The read-only Zenodo probe is available at `GET /api/zenodo/test`. It fetches record metadata and, when the record exposes a supported public file, downloads and parses a small cached sample. It never writes Zenodo data to PostgreSQL.
+
 ## Features
 
 - Open anonymized v7 Public Jira Dataset ingestion from Zenodo
@@ -37,6 +39,11 @@ Create `backend/.env` from `.env.example`:
 ```text
 DATABASE_URL=postgresql://username:password@host:5432/database
 GOOGLE_API_KEY=your_gemini_api_key
+ZENODO_RECORD_ID=7182101
+ZENODO_API_URL=https://zenodo.org/api/records
+ZENODO_CACHE_TTL=3600
+ZENODO_REQUEST_TIMEOUT=30
+ZENODO_SAMPLE_SIZE=5
 ```
 
 The default embedding model is `sentence-transformers/all-MiniLM-L6-v2`, which produces 384-dimensional normalized vectors. PostgreSQL must allow `CREATE EXTENSION vector`.
@@ -74,6 +81,7 @@ streamlit run app.py
 - `POST /api/incidents/similar` retrieves the top five historical matches.
 - `POST /api/incidents/analyze` retrieves evidence and generates an RCA.
 - `POST /api/incidents/upload` is disabled; dataset management belongs to the offline ingestion pipeline.
+- `GET /api/zenodo/test` checks the public Zenodo record and returns metadata plus sample records when a supported downloadable file is available.
 
 ## Data and security
 

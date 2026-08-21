@@ -18,8 +18,13 @@ INGEST_BATCH_SIZE = int(os.getenv("INGEST_BATCH_SIZE", "100"))
 INGEST_MAX_RECORDS = int(os.getenv("INGEST_MAX_RECORDS", "50000"))
 ZENODO_RECORD_URL = os.getenv(
 	"ZENODO_RECORD_URL",
-	"https://zenodo.org/records/15719919",
+	"https://zenodo.org/api/records/7182101",
 )
+ZENODO_RECORD_ID = os.getenv("ZENODO_RECORD_ID", "7182101")
+ZENODO_API_URL = os.getenv("ZENODO_API_URL", "https://zenodo.org/api/records")
+ZENODO_CACHE_TTL = int(os.getenv("ZENODO_CACHE_TTL", "3600"))
+ZENODO_REQUEST_TIMEOUT = float(os.getenv("ZENODO_REQUEST_TIMEOUT", "30"))
+ZENODO_SAMPLE_SIZE = int(os.getenv("ZENODO_SAMPLE_SIZE", "5"))
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 

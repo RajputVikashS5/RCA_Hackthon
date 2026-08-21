@@ -1,5 +1,14 @@
 const BACKEND_URL = "http://127.0.0.1:8000";
 
+export async function testZenodoConnection() {
+  const response = await fetch(`${BACKEND_URL}/api/zenodo/test`);
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.detail?.error || payload.detail || `Zenodo test failed with status ${response.status}`);
+  }
+  return payload;
+}
+
 export async function uploadDataset(file: File) {
   const formData = new FormData();
   formData.append("file", file);

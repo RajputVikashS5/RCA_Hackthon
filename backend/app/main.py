@@ -3,6 +3,7 @@ from app.api.test_retriever import router as retriever_router
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.upload import router as upload_router
+from app.api.zenodo import router as zenodo_router
 from app.database.connection import get_database_status
 
 app = FastAPI(
@@ -22,6 +23,7 @@ app.add_middleware(
 app.include_router(chat_router)
 app.include_router(retriever_router)
 app.include_router(upload_router)
+app.include_router(zenodo_router)
 
 
 @app.get("/")

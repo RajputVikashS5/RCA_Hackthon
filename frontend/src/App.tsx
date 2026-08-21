@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import './App.css';
-import { analyzeIncident } from './api';
+import { analyzeIncident, testZenodoConnection } from './api';
 
 function App() {
   const [description, setDescription] = useState('');
@@ -12,6 +12,9 @@ function App() {
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<any>(null);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [zenodoLoading, setZenodoLoading] = useState(false);
+  const [zenodoResult, setZenodoResult] = useState<any>(null);
+  const [zenodoError, setZenodoError] = useState<string | null>(null);
 
   const handleAnalyze = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -38,6 +41,19 @@ function App() {
     }
   };
 
+  const handleZenodoTest = async () => {
+    setZenodoLoading(true);
+    setZenodoError(null);
+    setZenodoResult(null);
+    try {
+      setZenodoResult(await testZenodoConnection());
+    } catch (err: any) {
+      setZenodoError(err.message);
+    } finally {
+      setZenodoLoading(false);
+    }
+  };
+
   return (
     <>
       <nav className="top-nav container">
@@ -61,6 +77,31 @@ function App() {
           <div style={{ maxWidth: '800px', margin: '0 auto' }}>
             {/* Main Column */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '48px' }}>
+              <div className="product-mockup-card">
+                <h3 className="title-lg" style={{ marginBottom: '12px' }}>Zenodo Connection</h3>
+                <p className="body-sm text-muted">Read-only test for the configured public Zenodo record.</p>
+                <button type="button" className="button-primary" style={{ marginTop: '20px' }} onClick={handleZenodoTest} disabled={zenodoLoading}>
+                  {zenodoLoading ? 'Testing Zenodo...' : 'Test Zenodo Connection'}
+                </button>
+                {zenodoError && <div style={{ color: 'var(--error)', marginTop: '16px' }} className="body-sm">{zenodoError}</div>}
+                {zenodoResult && (
+                  <div style={{ marginTop: '20px' }}>
+                    <div className="body-sm"><strong>Status:</strong> {zenodoResult.connection}</div>
+                    <div className="body-sm"><strong>Record:</strong> {zenodoResult.recordTitle}</div>
+                    <div className="body-sm"><strong>Files:</strong> {zenodoResult.filesFound}</div>
+                    <div className="body-sm"><strong>Dataset:</strong> {zenodoResult.datasetFile || 'No public dataset file found'}</div>
+                    <div className="body-sm"><strong>Sample records:</strong> {zenodoResult.sampleRecords?.length || 0}</div>
+                    {zenodoResult.sampleRecords?.length > 0 && (
+                      <div style={{ overflowX: 'auto', marginTop: '12px' }}>
+                        <table><tbody>{zenodoResult.sampleRecords.map((record: any, index: number) => (
+                          <tr key={index}><td>{record.incident_id || record.id || `Record ${index + 1}`}</td><td>{record.title || record.summary || ''}</td></tr>
+                        ))}</tbody></table>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
               <div className="product-mockup-card">
                 <h3 className="title-lg" style={{ marginBottom: '24px' }}>Analyze New Incident</h3>
                 <form onSubmit={handleAnalyze} style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>

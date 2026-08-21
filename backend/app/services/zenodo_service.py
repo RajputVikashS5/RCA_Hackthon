@@ -5,12 +5,13 @@ import json
 from pathlib import PurePosixPath
 import threading
 import time
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd
 import requests
 
 from app.config import (
+    JIRA_DATA_DIR,
     ZENODO_API_URL,
     ZENODO_CACHE_TTL,
     ZENODO_RECORD_ID,
@@ -19,7 +20,7 @@ from app.config import (
 )
 
 
-SUPPORTED_EXTENSIONS = {".csv", ".json", ".jsonl", ".ndjson", ".xls", ".xlsx"}
+SUPPORTED_EXTENSIONS = {".csv", ".json", ".jsonl", ".ndjson", ".xls", ".xlsx", ".gz", ".bz2", ".zip", ".bson"}
 
 
 class ZenodoServiceError(RuntimeError):
@@ -35,12 +36,7 @@ class ZenodoService:
         if not record_id.isdigit():
             raise ZenodoServiceError(f"Invalid Zenodo record ID: {record_id}")
 
-        record = self._get_cached(f"record:{record_id}")
-        if record is None:
-            print(f"[Zenodo] Connecting to record {record_id}")
-            record = self._fetch_record(record_id)
-            self._set_cached(f"record:{record_id}", record)
-            print("[Zenodo] Record found")
+        record = self._get_record(record_id)
 
         raw_files = record.get("files", [])
         files = self._available_files(record)
@@ -51,25 +47,157 @@ class ZenodoService:
             "recordId": record_id,
             "recordTitle": record.get("metadata", {}).get("title", "Untitled record"),
             "filesFound": len(files),
-            "datasetFile": files[0]["key"] if files else None,
+            "datasetFile": (self._dataset_archive(self._record_files(record)) or {}).get("name"),
             "connection": "successful",
+            "archiveType": self._archive_type(files[0]["key"]) if files else None,
+            "downloadAvailable": bool(files),
             "sampleRecords": [],
         }
 
         if not files:
             if raw_files:
-                raise ZenodoServiceError(
-                    f"Zenodo record {record_id} has downloadable files, but none use a supported format: "
+                response["success"] = False
+                response["connection"] = "metadata-only"
+                response["archiveType"] = "unknown"
+                response["downloadAvailable"] = False
+                response["message"] = (
+                    f"Zenodo record {record_id} has downloadable files, but they are not in a supported direct-sample format: "
                     f"{', '.join(str(item.get('key', 'unknown')) for item in raw_files)}"
                 )
-            raise ZenodoServiceError(
-                f"Zenodo record {record_id} is reachable, but it has no publicly downloadable files."
+                return response
+            response["success"] = False
+            response["connection"] = "metadata-only"
+            response["downloadAvailable"] = False
+            response["message"] = f"Zenodo record {record_id} is reachable, but it has no publicly downloadable files."
+            return response
+
+        archive = self._dataset_archive(self._record_files(record))
+        if archive:
+            response["connection"] = "metadata-only"
+            response["archiveType"] = "mongodb"
+            response["downloadAvailable"] = False
+            response["message"] = (
+                f"Zenodo record {record_id} exposes an archive file ({archive['name']}); "
+                "metadata-only validation is enabled and full archive download is intentionally skipped."
             )
+            return response
+
+        if sample_size <= 0:
+            print("[Zenodo] Lightweight connectivity check only; dataset download skipped.")
+            return response
 
         file_info = files[0]
         print(f"[Zenodo] Dataset file: {file_info['key']}")
         response["sampleRecords"] = self._get_sample(record_id, file_info, sample_size)
         return response
+
+    def get_record_info(self, record_id: str = ZENODO_RECORD_ID) -> dict[str, Any]:
+        return self.get_status(record_id)
+
+    def get_status(self, record_id: str = ZENODO_RECORD_ID) -> dict[str, Any]:
+        record_id = str(record_id).strip()
+        if not record_id.isdigit():
+            raise ZenodoServiceError(f"Invalid Zenodo record ID: {record_id}")
+
+        record = self._get_record(record_id)
+        metadata = cast(dict[str, Any], record.get("metadata", {}) or {})
+        files = self._record_files(record)
+        archive = self._dataset_archive(files)
+        title = str(metadata.get("title") or "Untitled record")
+        description = str(metadata.get("description") or "")
+        return {
+            "connected": True,
+            "metadata_access": "connected",
+            "dataset_access": "available" if archive else "unavailable",
+            "inspection": "not_started",
+            "ingestion": "not_started",
+            "record_id": record_id,
+            "title": title,
+            "version": metadata.get("version") or ("v7" if record_id == "15719919" or "v7" in f"{title} {description}".lower() else None),
+            "access_status": metadata.get("access_right") or record.get("access_right"),
+            "anonymized": self._is_anonymized(title, description),
+            "files": files,
+            "dataset_archive": archive,
+            "record_url": f"https://zenodo.org/records/{record_id}",
+        }
+
+    def inspect_dataset(self, record_id: str = ZENODO_RECORD_ID, sample_size: int = 5) -> dict[str, Any]:
+        status = self.get_status(record_id)
+        archive = cast(dict[str, Any], status.get("dataset_archive") or {})
+        if not archive:
+            raise ZenodoServiceError("The Zenodo record does not expose a MongoDB archive.")
+        from pathlib import Path
+
+        from ingestion.inspect_dataset import inspect_path
+
+        local_archive = Path(JIRA_DATA_DIR) / archive["name"]
+        if not local_archive.exists():
+            raise ZenodoServiceError(
+                f"Dataset archive is available at Zenodo but is not downloaded locally: {local_archive}. "
+                "Run the explicit ingestion download command before inspection."
+            )
+        result = inspect_path(local_archive, sample_size=max(1, min(sample_size, 20)))
+        result["archive_type"] = "mongodb"
+        return result
+
+    def _get_record(self, record_id: str) -> dict[str, Any]:
+        cache_key = f"record:{record_id}"
+        record = self._get_cached(cache_key)
+        if record is None:
+            record = self._fetch_record(record_id)
+            self._set_cached(cache_key, record)
+        return record
+
+    def _record_files(self, record: dict[str, Any]) -> list[dict[str, Any]]:
+        files: list[dict[str, Any]] = []
+        raw_files = cast(list[dict[str, Any]], record.get("files", []) or [])
+        for item in raw_files:
+            key = str(item.get("key") or "")
+            links = cast(dict[str, Any], item.get("links", {}) or {})
+            if not key:
+                continue
+            # Normalize both 'download_url' and 'url' keys for downstream consumers
+            download_url = links.get("self") or links.get("download")
+            files.append(
+                {
+                    "name": key,
+                    "key": key,
+                    "size": item.get("size"),
+                    "download_url": download_url,
+                    "url": download_url,
+                    "archive_type": self._archive_type(key),
+                    "is_dataset_archive": False,
+                }
+            )
+        archive = self._dataset_archive(files)
+        if archive:
+            for item in files:
+                item["is_dataset_archive"] = item["name"] == archive["name"]
+        return files
+
+    def _dataset_archive(self, files: list[dict[str, Any]]) -> dict[str, Any] | None:
+        candidates = [item for item in files if item.get("name", "").lower().endswith(".zip")]
+        if not candidates:
+            return None
+        candidates.sort(key=lambda item: (
+            "publicjiradataset" not in item["name"].lower(),
+            "jira" not in item["name"].lower(),
+            -int(item.get("size") or 0),
+        ))
+        selected = candidates[0]
+        return {
+            "name": selected["name"],
+            "size": selected.get("size"),
+            "download_url": selected.get("download_url"),
+            "available": bool(selected.get("download_url")),
+            "archive_type": "mongodb",
+        }
+
+    @staticmethod
+    def _is_anonymized(title: str, description: str) -> bool | None:
+        if "anonym" in f"{title} {description}".lower():
+            return True
+        return None
 
     def _fetch_record(self, record_id: str) -> dict[str, Any]:
         url = f"{ZENODO_API_URL.rstrip('/')}/{record_id}"
@@ -86,17 +214,35 @@ class ZenodoService:
 
         if not isinstance(payload, dict):
             raise ZenodoServiceError("Zenodo metadata response was not a JSON object.")
-        return payload
+        return cast(dict[str, Any], payload)
 
     def _available_files(self, record: dict[str, Any]) -> list[dict[str, Any]]:
-        files = []
-        for item in record.get("files", []):
+        files: list[dict[str, Any]] = []
+        raw_files = cast(list[dict[str, Any]], record.get("files", []) or [])
+        for item in raw_files:
             key = str(item.get("key", ""))
             extension = PurePosixPath(key).suffix.lower()
-            download_url = item.get("links", {}).get("self") or item.get("links", {}).get("download")
-            if key and download_url and extension in SUPPORTED_EXTENSIONS:
+            links = cast(dict[str, Any], item.get("links", {}) or {})
+            download_url = links.get("self") or links.get("download")
+            if key and download_url and (extension in SUPPORTED_EXTENSIONS or self._archive_type(key) in {"zip", "gz", "bson"}):
                 files.append({"key": key, "url": download_url, "size": item.get("size")})
         return files
+
+    def _archive_type(self, filename: str) -> str | None:
+        file_name = str(filename).lower()
+        if file_name.endswith(".zip"):
+            return "zip"
+        if file_name.endswith(".gz"):
+            return "gz"
+        if file_name.endswith(".bson"):
+            return "bson"
+        if file_name.endswith(".json") or file_name.endswith(".jsonl") or file_name.endswith(".ndjson"):
+            return "json"
+        if file_name.endswith(".csv"):
+            return "csv"
+        if file_name.endswith(".xls") or file_name.endswith(".xlsx"):
+            return "excel"
+        return None
 
     def _get_sample(self, record_id: str, file_info: dict[str, Any], sample_size: int) -> list[dict[str, Any]]:
         cache_key = f"sample:{record_id}:{file_info['key']}:{sample_size}"
@@ -128,22 +274,25 @@ class ZenodoService:
     def _parse_file(self, filename: str, content: bytes) -> list[dict[str, Any]]:
         extension = PurePosixPath(filename).suffix.lower()
         if extension == ".csv":
-            frame = pd.read_csv(StringIO(content.decode("utf-8-sig")))
-            return frame.where(pd.notna(frame), None).to_dict(orient="records")
+            frame: Any = getattr(pd, "read_csv")(StringIO(content.decode("utf-8-sig")))
+            notna: Any = getattr(pd, "notna")(frame)
+            return cast(list[dict[str, Any]], frame.where(notna, None).to_dict(orient="records"))
         if extension in {".xls", ".xlsx"}:
-            frame = pd.read_excel(BytesIO(content))
-            return frame.where(pd.notna(frame), None).to_dict(orient="records")
+            frame: Any = getattr(pd, "read_excel")(BytesIO(content))
+            notna: Any = getattr(pd, "notna")(frame)
+            return cast(list[dict[str, Any]], frame.where(notna, None).to_dict(orient="records"))
         if extension in {".jsonl", ".ndjson"}:
             return [json.loads(line) for line in content.decode("utf-8-sig").splitlines() if line.strip()]
         if extension == ".json":
-            payload = json.loads(content.decode("utf-8-sig"))
+            payload: Any = json.loads(content.decode("utf-8-sig"))
             if isinstance(payload, list):
-                return payload
+                return cast(list[dict[str, Any]], payload)
             if isinstance(payload, dict):
+                payload_dict = cast(dict[str, Any], payload)
                 for key in ("records", "data", "issues", "items"):
-                    if isinstance(payload.get(key), list):
-                        return payload[key]
-                return [payload]
+                    if isinstance(payload_dict.get(key), list):
+                        return cast(list[dict[str, Any]], payload_dict[key])
+                return [payload_dict]
             raise ValueError("JSON root must be an object or array")
         raise ValueError(f"unsupported file format: {extension or 'unknown'}")
 

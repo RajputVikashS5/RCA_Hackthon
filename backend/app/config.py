@@ -4,9 +4,14 @@ import os
 # Load environment variables
 load_dotenv()
 
+
+def get_database_url() -> str | None:
+    return os.getenv("DATABASE_URL")
+
+
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-DATABASE_URL = os.getenv("DATABASE_URL")
+DATABASE_URL = get_database_url()
 DEFAULT_TOP_K = int(os.getenv("DEFAULT_TOP_K", "5"))
 MIN_SIMILARITY_SCORE = float(os.getenv("MIN_SIMILARITY_SCORE", "0.35"))
 EMBEDDING_MODEL_NAME = os.getenv(
@@ -15,16 +20,18 @@ EMBEDDING_MODEL_NAME = os.getenv(
 )
 EMBEDDING_DIMENSION = int(os.getenv("EMBEDDING_DIMENSION", "384"))
 INGEST_BATCH_SIZE = int(os.getenv("INGEST_BATCH_SIZE", "100"))
-INGEST_MAX_RECORDS = int(os.getenv("INGEST_MAX_RECORDS", "50000"))
+INGEST_MAX_RECORDS = int(os.getenv("INGEST_MAX_RECORDS", "1000"))
 ZENODO_RECORD_URL = os.getenv(
 	"ZENODO_RECORD_URL",
-	"https://zenodo.org/api/records/7182101",
+	"https://zenodo.org/api/records/15719919",
 )
-ZENODO_RECORD_ID = os.getenv("ZENODO_RECORD_ID", "7182101")
+ZENODO_RECORD_ID = os.getenv("ZENODO_RECORD_ID", "15719919")
+ZENODO_SOURCE_NAME = os.getenv("ZENODO_SOURCE_NAME", "The Public Jira Dataset v7")
 ZENODO_API_URL = os.getenv("ZENODO_API_URL", "https://zenodo.org/api/records")
 ZENODO_CACHE_TTL = int(os.getenv("ZENODO_CACHE_TTL", "3600"))
 ZENODO_REQUEST_TIMEOUT = float(os.getenv("ZENODO_REQUEST_TIMEOUT", "30"))
 ZENODO_SAMPLE_SIZE = int(os.getenv("ZENODO_SAMPLE_SIZE", "5"))
+JIRA_DATA_DIR = os.getenv("JIRA_DATA_DIR", "C:/external/jira-data")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 

@@ -80,3 +80,19 @@ def test_analyze_similar_and_disabled_upload_contracts(monkeypatch):
 
     upload_response = client.post("/api/incidents/upload")
     assert upload_response.status_code == 410
+
+
+def test_development_cors_allows_frontend_origins():
+    client = TestClient(app)
+    response = client.options(
+        "/api/incidents/analyze",
+        headers={
+            "Origin": "http://localhost:5173",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers.get("access-control-allow-origin") == "http://localhost:5173"
+    assert "POST" in response.headers.get("access-control-allow-methods", "")

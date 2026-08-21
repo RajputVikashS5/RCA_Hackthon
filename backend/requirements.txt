@@ -19,3 +19,4 @@ pytest
 httpx
 streamlit
 requests
+pymongo

@@ -3,7 +3,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from typing import Any, Iterator
 
-from app.config import DATABASE_URL, EMBEDDING_DIMENSION
+from app.config import EMBEDDING_DIMENSION, get_database_url
 
 try:
     from psycopg_pool import ConnectionPool
@@ -14,16 +14,21 @@ except ImportError:  # pragma: no cover - dependency is installed in deployment
 _pool = None
 
 
+def _database_url() -> str | None:
+    return get_database_url()
+
+
 def _get_pool():
     global _pool
+    database_url = _database_url()
 
-    if not DATABASE_URL:
+    if not database_url:
         raise RuntimeError("DATABASE_URL is not configured.")
     if ConnectionPool is None:
         raise RuntimeError("The psycopg connection pool dependency is not installed.")
     if _pool is None:
         _pool = ConnectionPool(
-            conninfo=DATABASE_URL,
+            conninfo=database_url,
             min_size=1,
             max_size=10,
             open=False,
@@ -89,7 +94,7 @@ def get_database_status() -> dict[str, Any]:
         "vector_search": "Unavailable",
     }
 
-    if not DATABASE_URL:
+    if not _database_url():
         status["detail"] = "Database connection is not configured."
         return status
 

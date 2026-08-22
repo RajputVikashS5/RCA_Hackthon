@@ -1,8 +1,8 @@
 /** Empty in development uses Vite's proxy. Set VITE_API_BASE_URL for a deployed API. */
 const BACKEND_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '')
 export type IncidentInput = { description: string; component?: string; severity?: string; environment?: string; incident_type?: string }
-export type SimilarIncident = { incident_id: string; title?: string; description?: string; root_cause?: string | null; resolution?: string | null; similarity_score: number; metadata?: Record<string, unknown> }
-export type AnalysisResult = { analysis_id?: string; root_cause?: string; resolution?: string; evidence_incidents?: Pick<SimilarIncident, 'incident_id' | 'similarity_score'>[]; evidence_strength?: string; summary?: string; similar_incidents?: SimilarIncident[] }
+export type SimilarIncident = { incident_id: string; title?: string; description?: string; project?: string | null; root_cause?: string | null; resolution?: string | null; similarity_score: number; keyword_score?: number | null; retrieval_score?: number | null; metadata?: Record<string, unknown> }
+export type AnalysisResult = { analysis_id?: string; root_cause?: string; resolution?: string; evidence_incidents?: Pick<SimilarIncident, 'incident_id' | 'similarity_score'>[]; evidence_strength?: string; summary?: string; evidence_explanation?: string; similar_incidents?: SimilarIncident[] }
 export type StoredAnalysis = { id: string; created_at: string; input: IncidentInput; result: AnalysisResult }
 export type ZenodoProbe = { success: true; data: { source: 'zenodo'; status: 'available' | 'restricted' | 'unavailable'; recordId: string; metadataAvailable: boolean; filesAvailable: boolean; message: string } }
 function messageFrom(payload: unknown, fallback: string) { if (!payload || typeof payload !== 'object') return fallback; const detail = (payload as { detail?: unknown }).detail; if (typeof detail === 'string') return detail; if (detail && typeof detail === 'object' && typeof (detail as { error?: unknown }).error === 'string') return (detail as { error: string }).error; return fallback }

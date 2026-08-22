@@ -12,7 +12,12 @@ class DatabaseRetriever:
 
     def retrieve(self, question: str, top_k: int = DEFAULT_TOP_K) -> list[dict]:
         query_embedding = self.embedding_model.embed_query(question)
-        matches = self.repository.search(query_embedding, top_k=top_k)
+        search_hybrid = getattr(self.repository, "search_hybrid", None)
+        matches = (
+            search_hybrid(query_embedding, question, top_k=top_k)
+            if search_hybrid
+            else self.repository.search(query_embedding, top_k=top_k)
+        )
         return [
             match
             for match in matches

@@ -50,3 +50,18 @@ def test_database_retriever_filters_low_similarity_matches():
     retriever.embedding_model = FakeEmbeddingModel()
 
     assert [item["incident_id"] for item in retriever.retrieve("Payment outage")] == ["INC-relevant"]
+
+
+def test_database_retriever_uses_hybrid_search_when_available():
+    class HybridRepository:
+        def search_hybrid(self, embedding, question, top_k=5):
+            assert question == "Parquet read failure"
+            return [{"incident_id": "DRILL-816", "similarity_score": 0.7}]
+
+        def search(self, embedding, top_k=5):
+            raise AssertionError("Hybrid search should be preferred.")
+
+    retriever = DatabaseRetriever(repository=HybridRepository())
+    retriever.embedding_model = FakeEmbeddingModel()
+
+    assert retriever.retrieve("Parquet read failure")[0]["incident_id"] == "DRILL-816"

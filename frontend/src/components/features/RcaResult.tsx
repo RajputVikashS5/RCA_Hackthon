@@ -38,6 +38,9 @@ const RcaResult: React.FC<RcaResultProps> = ({ result }) => {
           <span className="card-title" style={{ color: 'var(--ink)' }}>AI RCA Summary</span>
         </div>
         <p className="body-sm" style={{ lineHeight: '1.6' }}>{result.summary || "No summary was returned by the model."}</p>
+        {result.evidence_explanation && (
+          <p className="body-sm text-muted" style={{ marginTop: '12px', lineHeight: '1.5' }}>{result.evidence_explanation}</p>
+        )}
         
         {result.evidence_strength === "Insufficient" && (
           <div style={{ marginTop: '16px', padding: '12px 16px', backgroundColor: 'rgba(245, 158, 11, 0.1)', color: 'var(--warning)', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
@@ -56,6 +59,7 @@ const RcaResult: React.FC<RcaResultProps> = ({ result }) => {
               <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '12px' }}>
                 <span className="badge badge-neutral">{inc.incident_id || 'Unknown'}</span>
                 <span className="badge badge-success">Similarity {parseFloat(inc.similarity_score || 0).toFixed(3)}</span>
+                {inc.retrieval_score != null && <span className="badge badge-neutral">Rank {parseFloat(inc.retrieval_score).toFixed(3)}</span>}
               </div>
               <h4 className="title-sm">{inc.title || 'Untitled Incident'}</h4>
               <p className="body-sm text-muted" style={{ margin: '8px 0' }}>{inc.description}</p>
@@ -72,6 +76,7 @@ const RcaResult: React.FC<RcaResultProps> = ({ result }) => {
               </div>
               
               <div className="caption" style={{ marginTop: '16px', display: 'flex', gap: '16px' }}>
+                <span>Project: {inc.project || 'Unknown'}</span>
                 <span>Comp: {inc.metadata?.component || inc.component}</span>
                 <span>Sev: {inc.metadata?.severity || inc.severity}</span>
                 <span>Env: {inc.metadata?.environment || inc.environment}</span>

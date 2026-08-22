@@ -71,6 +71,8 @@ python ingestion/pipeline.py E:/external/jira-data/issues.bson.gz --max-records 
 
 The pipeline supports ZIP and gzipped BSON input, processes bounded streaming batches, deduplicates by `incident_id`, generates normalized 384-dimensional embeddings, and upserts through the existing PostgreSQL + pgvector repository. It does not fabricate missing root causes or resolutions. Low-quality SEO-like titles are excluded before embedding. `INGEST_MAX_RECORDS` and `INGEST_BATCH_SIZE` control development scale.
 
+Runtime retrieval combines normalized cosine similarity with PostgreSQL full-text relevance. Semantic similarity remains the reported `similarity_score`; the combined `retrieval_score` is used only for ordering. RCA responses include retrieval diagnostics such as result count, highest/average similarity, and evidence-bearing records.
+
 `--replace-source` deletes only the existing Apache Jira rows before rebuilding that source. For large archives, run bounded windows in separate processes. Use `--skip-records` to resume after a completed window without deleting existing rows:
 
 ```bash

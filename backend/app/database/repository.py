@@ -152,6 +152,52 @@ class IncidentRepository:
 
         return results
 
+    def search_hybrid(
+        self,
+        embedding: Sequence[float],
+        query_text: str,
+        top_k: int = 5,
+    ) -> list[dict[str, Any]]:
+        with get_connection() as connection:
+            _register_vector(connection)
+            with connection.cursor() as cursor:
+                query_vector = _vector_type()(list(embedding))
+                cursor.execute(
+                    f"""
+                    WITH candidates AS (
+                        SELECT
+                            {_COLUMNS},
+                            1 - (embedding <=> %s) AS semantic_score,
+                            ts_rank_cd(
+                                to_tsvector('simple', concat_ws(' ', title, description, comments, resolution, project, component, incident_type, severity, environment, status)),
+                                websearch_to_tsquery('simple', replace(%s, ' ', ' OR '))
+                            ) AS keyword_score
+                        FROM incidents
+                        WHERE embedding IS NOT NULL
+                    )
+                    SELECT *,
+                        semantic_score * 0.8 +
+                        LEAST(keyword_score, 1.0) * 0.2 AS retrieval_score
+                    FROM candidates
+                    ORDER BY retrieval_score DESC, semantic_score DESC
+                    LIMIT %s
+                    """,
+                    (query_vector, query_text, top_k),
+                )
+                rows = cursor.fetchall()
+                columns = [item.name for item in cursor.description]
+
+        results = []
+        for row in rows:
+            item = dict(zip(columns, row))
+            item.pop("embedding", None)
+            item["metadata"] = item.pop("metadata", {}) or {}
+            item["similarity_score"] = round(float(item.pop("semantic_score")), 4)
+            item["keyword_score"] = round(float(item.pop("keyword_score")), 4)
+            item["retrieval_score"] = round(float(item.pop("retrieval_score")), 4)
+            results.append(item)
+        return results
+
     def _values(
         self,
         record: dict[str, Any],

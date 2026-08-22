@@ -42,9 +42,12 @@ class SimilarIncident(BaseModel):
     incident_id: str
     title: str
     description: str
+    project: Optional[str] = None
     root_cause: Optional[str] = None
     resolution: Optional[str] = None
     similarity_score: float
+    keyword_score: Optional[float] = None
+    retrieval_score: Optional[float] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -74,7 +77,9 @@ class IncidentAnalysisResponse(BaseModel):
     evidence_incidents: List[EvidenceIncident] = Field(default_factory=list)
     evidence_strength: str
     summary: str
+    evidence_explanation: str = ""
     similar_incidents: List[SimilarIncident] = Field(default_factory=list)
+    retrieval_diagnostics: Dict[str, Any] = Field(default_factory=dict)
 
 
 class StoredAnalysisResponse(BaseModel):

@@ -119,6 +119,10 @@ def searchable_text(record: dict[str, Any]) -> str:
         ("Resolution", record.get("resolution")),
         ("Project", record.get("project")),
         ("Component", record.get("component")),
+        ("Issue Type", record.get("incident_type")),
+        ("Priority", record.get("severity")),
+        ("Environment", record.get("environment")),
+        ("Status", record.get("status")),
     )
     return "\n".join(f"{label}: {value}" for label, value in labels if value)
 
@@ -147,7 +151,7 @@ def transform_jira_issue(issue: dict[str, Any], source_url: str | None = None) -
         if match:
             root_cause = match.group(1).strip()
 
-    project = _first(fields, "project", "projectKey")
+    project = _first(fields, "project", "projectKey", "projectname")
     components = _first(fields, "components", "component") or []
     if not isinstance(components, list):
         components = [components]

@@ -24,7 +24,11 @@ class GeminiLLM:
         if not retrieved_incidents:
             return self._insufficient_evidence_response(retrieved_incidents)
 
-        if retrieved_incidents[0].get("similarity_score", 0.0) < MIN_SIMILARITY_SCORE:
+        best_similarity = max(
+            float(item.get("similarity_score", 0.0))
+            for item in retrieved_incidents
+        )
+        if best_similarity < MIN_SIMILARITY_SCORE:
             return self._insufficient_evidence_response(retrieved_incidents)
 
         prompt = self._build_prompt(incident, retrieved_incidents)
@@ -82,7 +86,7 @@ Rules:
 - Do not invent incident IDs, root causes, or resolutions.
 - Distinguish evidence from inference.
 - If the evidence is weak, say so explicitly.
-- Return JSON only with these keys: root_cause, resolution, evidence_strength, summary, supporting_incident_ids.
+- Return JSON only with these keys: root_cause, resolution, evidence_strength, summary, evidence_explanation, supporting_incident_ids.
 
 New Incident:
 {new_incident_context}
@@ -96,6 +100,7 @@ Output JSON schema:
   "resolution": "string",
   "evidence_strength": "High | Medium | Low | Insufficient",
   "summary": "string",
+    "evidence_explanation": "string",
   "supporting_incident_ids": ["INC-0001", "INC-0002"]
 }}
 """.strip()
@@ -135,14 +140,24 @@ Output JSON schema:
         resolution = self._clean_text(parsed.get("resolution")) or self._fallback_resolution()
         evidence_strength = self._clean_text(parsed.get("evidence_strength")) or self._derive_evidence_strength(retrieved_incidents)
         summary = self._clean_text(parsed.get("summary")) or self._fallback_summary()
+        evidence_explanation = self._clean_text(parsed.get("evidence_explanation")) or self._evidence_explanation(retrieved_incidents)
 
         return {
             "root_cause": root_cause,
             "resolution": resolution,
             "evidence_strength": evidence_strength,
             "summary": summary,
+            "evidence_explanation": evidence_explanation,
             "evidence_incidents": evidence_incidents,
         }
+
+    def _evidence_explanation(self, retrieved_incidents: List[Dict[str, Any]]) -> str:
+        resolutions = sum(bool(item.get("resolution")) for item in retrieved_incidents)
+        root_causes = sum(bool(item.get("root_cause")) for item in retrieved_incidents)
+        return (
+            f"{len(retrieved_incidents)} historical matches met the semantic evidence threshold; "
+            f"{resolutions} include a resolution and {root_causes} include an explicit root cause."
+        )
 
     def _sanitize_supporting_ids(self, supporting_ids: Any, retrieved_incidents: List[Dict[str, Any]]) -> List[str]:
         allowed_ids = {incident.get("incident_id", "") for incident in retrieved_incidents}
@@ -175,6 +190,8 @@ Output JSON schema:
         if value is None:
             return ""
         text = str(value).strip()
+        if text.casefold() in {"none", "null", "n/a", "unknown", "not documented"}:
+            return ""
         return re.sub(r"\s+", " ", text)
 
     def _derive_evidence_strength(self, retrieved_incidents: List[Dict[str, Any]]) -> str:
@@ -210,5 +227,6 @@ Output JSON schema:
             "resolution": self._fallback_resolution(),
             "evidence_strength": "Insufficient",
             "summary": self._fallback_summary(),
+            "evidence_explanation": self._evidence_explanation(retrieved_incidents),
             "evidence_incidents": evidence_incidents,
         }

@@ -113,3 +113,49 @@ def test_weak_evidence_short_circuits_without_gemini_call():
 
     assert result["evidence_strength"] == "Insufficient"
     assert "Insufficient historical evidence" in result["root_cause"]
+
+
+def test_evidence_gate_uses_strongest_match_not_first_hybrid_result():
+    llm = GeminiLLM()
+    llm.client = FakeGeminiClient(
+        json.dumps(
+            {
+                "root_cause": "Parquet decoding failure",
+                "resolution": "Repair the affected reader path.",
+                "evidence_strength": "Medium",
+                "summary": "A historical match supports the diagnosis.",
+                "supporting_incident_ids": ["DRILL-816"],
+            }
+        )
+    )
+    retrieved = [
+        {"incident_id": "DRILL-649", "similarity_score": 0.2},
+        {"incident_id": "DRILL-816", "similarity_score": 0.7},
+    ]
+
+    result = llm.generate_rca({"description": "Parquet read failure"}, retrieved)
+
+    assert result["evidence_strength"] == "Medium"
+
+
+def test_null_like_model_root_cause_is_replaced_with_grounded_fallback():
+    llm = GeminiLLM()
+    llm.client = FakeGeminiClient(
+        json.dumps(
+            {
+                "root_cause": "None",
+                "resolution": "Fixed",
+                "evidence_strength": "Medium",
+                "summary": "Historical records document a fix but no root cause.",
+                "supporting_incident_ids": ["DRILL-816"],
+            }
+        )
+    )
+
+    result = llm.generate_rca(
+        {"description": "Parquet read failure"},
+        [{"incident_id": "DRILL-816", "similarity_score": 0.7}],
+    )
+
+    assert result["root_cause"] == llm._fallback_root_cause()
+    assert result["resolution"] == "Fixed"

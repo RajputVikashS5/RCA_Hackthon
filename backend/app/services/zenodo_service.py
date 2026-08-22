@@ -34,61 +34,91 @@ class ZenodoService:
     def test_connection(self, record_id: str = ZENODO_RECORD_ID, sample_size: int = ZENODO_SAMPLE_SIZE) -> dict[str, Any]:
         record_id = str(record_id).strip()
         if not record_id.isdigit():
-            raise ZenodoServiceError(f"Invalid Zenodo record ID: {record_id}")
+            return self._unavailable(record_id, "Invalid Zenodo record ID.")
 
-        record = self._get_record(record_id)
+        # Do not retry a known restricted file on every UI status refresh.
+        restricted = self._get_cached(f"restricted:{record_id}")
+        if restricted is not None:
+            return restricted
+
+        try:
+            record = self._get_cached(f"record:{record_id}")
+            if record is None:
+                print(f"[Zenodo] Connecting to record {record_id}")
+                record = self._fetch_record(record_id)
+                self._set_cached(f"record:{record_id}", record)
+                print("[Zenodo] Record found")
+        except ZenodoServiceError as exc:
+            # Zenodo is a supplemental source. A failed probe must never make the
+            # primary PostgreSQL/pgvector knowledge base unavailable.
+            return self._unavailable(record_id, str(exc))
 
         raw_files = record.get("files", [])
         files = self._available_files(record)
         print(f"[Zenodo] Files discovered: {len(files)}")
-        response: dict[str, Any] = {
-            "success": True,
-            "source": "Zenodo",
+        data: dict[str, Any] = {
+            "source": "zenodo",
             "recordId": record_id,
             "recordTitle": record.get("metadata", {}).get("title", "Untitled record"),
             "filesFound": len(files),
-            "datasetFile": (self._dataset_archive(self._record_files(record)) or {}).get("name"),
-            "connection": "successful",
-            "archiveType": self._archive_type(files[0]["key"]) if files else None,
-            "downloadAvailable": bool(files),
+            "datasetFile": files[0]["key"] if files else None,
+            "metadataAvailable": True,
+            "filesAvailable": bool(files),
             "sampleRecords": [],
         }
 
         if not files:
             if raw_files:
-                response["success"] = False
-                response["connection"] = "metadata-only"
-                response["archiveType"] = "unknown"
-                response["downloadAvailable"] = False
-                response["message"] = (
-                    f"Zenodo record {record_id} has downloadable files, but they are not in a supported direct-sample format: "
-                    f"{', '.join(str(item.get('key', 'unknown')) for item in raw_files)}"
+                message = (
+                    "Zenodo record metadata is accessible, but no supported dataset files are publicly downloadable."
                 )
-                return response
-            response["success"] = False
-            response["connection"] = "metadata-only"
-            response["downloadAvailable"] = False
-            response["message"] = f"Zenodo record {record_id} is reachable, but it has no publicly downloadable files."
-            return response
-
-        archive = self._dataset_archive(self._record_files(record))
-        if archive:
-            response["connection"] = "metadata-only"
-            response["archiveType"] = "mongodb"
-            response["downloadAvailable"] = False
-            response["message"] = (
-                f"Zenodo record {record_id} exposes an archive file ({archive['name']}); "
-                "metadata-only validation is enabled and full archive download is intentionally skipped."
-            )
-            return response
-
-        if sample_size <= 0:
-            print("[Zenodo] Lightweight connectivity check only; dataset download skipped.")
-            return response
+            else:
+                message = "Zenodo record metadata is accessible, but dataset files are restricted."
+            return self._cache_restricted(record_id, self._response(data, status="restricted", message=message))
 
         file_info = files[0]
         print(f"[Zenodo] Dataset file: {file_info['key']}")
-        response["sampleRecords"] = self._get_sample(record_id, file_info, sample_size)
+        try:
+            data["sampleRecords"] = self._get_sample(record_id, file_info, sample_size)
+        except ZenodoServiceError as exc:
+            # A file link can be listed in public metadata but still reject a
+            # download. Treat that expected authorization failure as restricted.
+            return self._cache_restricted(
+                record_id,
+                self._response(data, status="restricted", message=str(exc), files_available=False),
+            )
+
+        return self._response(data, status="available", message="Zenodo metadata and dataset files are accessible.")
+
+    def _response(
+        self,
+        data: dict[str, Any],
+        *,
+        status: str,
+        message: str,
+        files_available: bool | None = None,
+    ) -> dict[str, Any]:
+        if files_available is not None:
+            data["filesAvailable"] = files_available
+        data["status"] = status
+        data["message"] = message
+        return {"success": True, "data": data}
+
+    def _unavailable(self, record_id: str, message: str) -> dict[str, Any]:
+        return self._response(
+            {
+                "source": "zenodo",
+                "recordId": record_id,
+                "metadataAvailable": False,
+                "filesAvailable": False,
+                "sampleRecords": [],
+            },
+            status="unavailable",
+            message=message,
+        )
+
+    def _cache_restricted(self, record_id: str, response: dict[str, Any]) -> dict[str, Any]:
+        self._set_cached(f"restricted:{record_id}", response)
         return response
 
     def get_record_info(self, record_id: str = ZENODO_RECORD_ID) -> dict[str, Any]:
@@ -113,7 +143,7 @@ class ZenodoService:
             "ingestion": "not_started",
             "record_id": record_id,
             "title": title,
-            "version": metadata.get("version") or ("v7" if record_id == "15719919" or "v7" in f"{title} {description}".lower() else None),
+            "version": metadata.get("version") or ("apache-jira" if record_id == "7740379" or "apache jira" in f"{title} {description}".lower() else None),
             "access_status": metadata.get("access_right") or record.get("access_right"),
             "anonymized": self._is_anonymized(title, description),
             "files": files,
@@ -200,7 +230,9 @@ class ZenodoService:
         return None
 
     def _fetch_record(self, record_id: str) -> dict[str, Any]:
-        url = f"{ZENODO_API_URL.rstrip('/')}/{record_id}"
+        api_url = ZENODO_API_URL.rstrip("/")
+        record_path = "" if api_url.endswith("/records") else "/records"
+        url = f"{api_url}{record_path}/{record_id}"
         try:
             result = requests.get(url, timeout=ZENODO_REQUEST_TIMEOUT)
             result.raise_for_status()

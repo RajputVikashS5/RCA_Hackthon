@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gzip
 from pathlib import Path
 from typing import Any, Iterator
 from zipfile import ZipFile
@@ -15,7 +16,10 @@ def _archive_path(source: Path) -> Path:
         return source
     archives = sorted(source.glob("*.zip"))
     if not archives:
-        raise FileNotFoundError(f"No ZIP archive found under {source}")
+        bson_files = sorted(source.rglob("*.bson")) + sorted(source.rglob("*.bson.gz"))
+        if not bson_files:
+            raise FileNotFoundError(f"No ZIP or BSON archive found under {source}")
+        return bson_files[0]
     return archives[0]
 
 
@@ -41,11 +45,13 @@ def iter_issue_documents(
     *,
     collection: str | None = None,
     max_records: int | None = None,
+    skip_records: int = 0,
 ) -> Iterator[dict[str, Any]]:
     if decode_file_iter is None:
         raise RuntimeError("pymongo is required to read BSON files.")
     path = _archive_path(source)
     yielded = 0
+    skipped = 0
     if path.suffix.lower() == ".zip":
         with ZipFile(path) as archive:
             member = _issue_member(archive.namelist(), collection)
@@ -55,6 +61,9 @@ def iter_issue_documents(
                     for record in records:
                         if not isinstance(record, dict):
                             continue
+                        if skipped < skip_records:
+                            skipped += 1
+                            continue
                         yield record
                         yielded += 1
                         if max_records is not None and yielded >= max_records:
@@ -63,9 +72,13 @@ def iter_issue_documents(
                     if yielded == 0:
                         raise RuntimeError(f"Unable to parse Jira BSON collection '{member}': {exc}") from exc
         return
-    with path.open("rb") as handle:
+    opener = gzip.open if path.name.lower().endswith(".gz") else open
+    with opener(path, "rb") as handle:
         for record in decode_file_iter(handle):
             if not isinstance(record, dict):
+                continue
+            if skipped < skip_records:
+                skipped += 1
                 continue
             yield record
             yielded += 1
@@ -79,11 +92,12 @@ def iter_batches(
     batch_size: int = 100,
     max_records: int = 1000,
     collection: str | None = None,
+    skip_records: int = 0,
 ) -> Iterator[list[dict[str, Any]]]:
     if batch_size <= 0:
         raise ValueError("batch_size must be positive")
     batch: list[dict[str, Any]] = []
-    for record in iter_issue_documents(source, collection=collection, max_records=max_records):
+    for record in iter_issue_documents(source, collection=collection, max_records=max_records, skip_records=skip_records):
         batch.append(record)
         if len(batch) >= batch_size:
             yield batch

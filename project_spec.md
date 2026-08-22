@@ -22,9 +22,9 @@ The raw Zenodo dataset is external and must remain outside the repository. Norma
 
 ## Dataset
 
-The source is the open anonymized Public Jira Dataset v7 at `https://zenodo.org/records/15719919`. The restricted record `https://zenodo.org/records/7182101` is not used.
+The source is the Apache Jira Issue Tracking Dataset at `https://zenodo.org/records/7740379`. The restricted record `https://zenodo.org/records/7182101` is not used.
 
-The v7 release is a roughly 5.8 GB ZIP containing MongoDB BSON collections. Zenodo metadata access does not mean Jira records are available to runtime requests. The offline ingestion scripts explicitly download the archive outside the repository, inspect only bounded samples, stream the Jira issue collection, and write transformed records to PostgreSQL. Raw archives and exports are ignored and must remain outside Git.
+The Apache Jira release is a public MongoDB archive containing BSON collections. Zenodo metadata access does not mean Jira records are available to runtime requests. The offline ingestion scripts explicitly download the archive outside the repository, inspect only bounded samples, stream the Jira issue collection, and write transformed records to PostgreSQL. Raw archives and exports are ignored and must remain outside Git.
 
 ## Database
 

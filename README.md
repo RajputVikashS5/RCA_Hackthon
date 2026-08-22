@@ -39,8 +39,9 @@ Create `backend/.env` from `.env.example`:
 ```text
 DATABASE_URL=postgresql://username:password@host:5432/database
 GOOGLE_API_KEY=your_gemini_api_key
-ZENODO_RECORD_ID=15719919
+ZENODO_RECORD_ID=7740379
 ZENODO_API_URL=https://zenodo.org/api/records
+ZENODO_ACCESS_TOKEN=your_zenodo_access_token
 ZENODO_CACHE_TTL=3600
 ZENODO_REQUEST_TIMEOUT=30
 ZENODO_SAMPLE_SIZE=5
@@ -48,6 +49,8 @@ INGEST_BATCH_SIZE=100
 INGEST_MAX_RECORDS=1000
 JIRA_DATA_DIR=C:/external/jira-data
 ```
+
+Store the Zenodo access token in the backend environment file at `backend/.env` as `ZENODO_ACCESS_TOKEN=...`. Keep it server-side: the frontend must not receive or send this token. The backend uses it only for Zenodo metadata and explicit offline archive-download requests, and sends it as a Bearer header. Never commit `backend/.env`; rotate the token immediately if it has been exposed.
 
 The default embedding model is `sentence-transformers/all-MiniLM-L6-v2`, which produces 384-dimensional normalized vectors. PostgreSQL must allow `CREATE EXTENSION vector`.
 
@@ -58,16 +61,26 @@ cd backend
 python -m app.database.init_db
 ```
 
-Download and inspect the dataset outside the repository. The current open anonymized release is Zenodo v7 at `https://zenodo.org/records/15719919`; it contains a roughly 5.8 GB MongoDB ZIP archive. Do not use restricted record `7182101`, and do not place the archive in Git.
+Download and inspect the dataset outside the repository. The current open anonymized release is the Apache Jira dataset at `https://zenodo.org/records/7740379`; it contains a MongoDB archive and metadata files. Do not use restricted record `7182101`, and do not place the archive in Git.
 
 ```bash
-python ingestion/download_zenodo.py --output-dir C:/external/jira-data
-python ingestion/inspect_dataset.py C:/external/jira-data/2025-06-23\ ThePublicJiraDataset.zip --sample-size 5
-python ingestion/pipeline.py C:/external/jira-data/2025-06-23\ ThePublicJiraDataset.zip --max-records 100 --batch-size 100
-python ingestion/pipeline.py C:/external/jira-data/2025-06-23\ ThePublicJiraDataset.zip --max-records 1000 --batch-size 100
+python ingestion/download_zenodo.py --output-dir E:/external/jira-data
+python ingestion/inspect_dataset.py E:/external/jira-data/issues.bson.gz --sample-size 5
+python ingestion/pipeline.py E:/external/jira-data/issues.bson.gz --max-records 1000 --batch-size 10 --replace-source
 ```
 
-The pipeline locates the Jira issue BSON collection inside the ZIP, processes bounded streaming batches, deduplicates by `incident_id`, generates normalized 384-dimensional embeddings, and upserts through the existing PostgreSQL + pgvector repository. It does not fabricate missing root causes or resolutions. `INGEST_MAX_RECORDS` and `INGEST_BATCH_SIZE` control development scale.
+The pipeline supports ZIP and gzipped BSON input, processes bounded streaming batches, deduplicates by `incident_id`, generates normalized 384-dimensional embeddings, and upserts through the existing PostgreSQL + pgvector repository. It does not fabricate missing root causes or resolutions. Low-quality SEO-like titles are excluded before embedding. `INGEST_MAX_RECORDS` and `INGEST_BATCH_SIZE` control development scale.
+
+Runtime retrieval combines normalized cosine similarity with PostgreSQL full-text relevance. Semantic similarity remains the reported `similarity_score`; the combined `retrieval_score` is used only for ordering. RCA responses include retrieval diagnostics such as result count, highest/average similarity, and evidence-bearing records.
+
+`--replace-source` deletes only the existing Apache Jira rows before rebuilding that source. For large archives, run bounded windows in separate processes. Use `--skip-records` to resume after a completed window without deleting existing rows:
+
+```bash
+python ingestion/pipeline.py E:/external/jira-data/issues.bson.gz --max-records 1000 --batch-size 10 --replace-source
+python ingestion/pipeline.py E:/external/jira-data/issues.bson.gz --skip-records 1000 --max-records 1000 --batch-size 10
+```
+
+Keep the archive outside Git even though archive extensions are ignored by `.gitignore`.
 
 Start the services:
 
@@ -76,6 +89,7 @@ cd backend
 python -m uvicorn app.main:app --reload
 
 cd frontend
+npm install
 npm run dev
 ```
 

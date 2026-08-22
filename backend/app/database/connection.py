@@ -78,6 +78,23 @@ def initialize_database() -> None:
             )
             cursor.execute(
                 """
+                CREATE TABLE IF NOT EXISTS rca_analyses (
+                    analysis_id UUID PRIMARY KEY,
+                    description TEXT NOT NULL,
+                    component TEXT,
+                    severity TEXT,
+                    environment TEXT,
+                    incident_type TEXT,
+                    result JSONB NOT NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+                """
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS rca_analyses_created_at_idx ON rca_analyses (created_at DESC)"
+            )
+            cursor.execute(
+                """
                 CREATE INDEX IF NOT EXISTS incidents_embedding_hnsw_idx
                 ON incidents USING hnsw (embedding vector_cosine_ops)
                 """

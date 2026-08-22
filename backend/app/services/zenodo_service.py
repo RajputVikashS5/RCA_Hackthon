@@ -143,7 +143,7 @@ class ZenodoService:
             "ingestion": "not_started",
             "record_id": record_id,
             "title": title,
-            "version": metadata.get("version") or ("v7" if record_id == "15719919" or "v7" in f"{title} {description}".lower() else None),
+            "version": metadata.get("version") or ("apache-jira" if record_id == "7740379" or "apache jira" in f"{title} {description}".lower() else None),
             "access_status": metadata.get("access_right") or record.get("access_right"),
             "anonymized": self._is_anonymized(title, description),
             "files": files,
@@ -230,7 +230,9 @@ class ZenodoService:
         return None
 
     def _fetch_record(self, record_id: str) -> dict[str, Any]:
-        url = f"{ZENODO_API_URL.rstrip('/')}/{record_id}"
+        api_url = ZENODO_API_URL.rstrip("/")
+        record_path = "" if api_url.endswith("/records") else "/records"
+        url = f"{api_url}{record_path}/{record_id}"
         try:
             result = requests.get(url, timeout=ZENODO_REQUEST_TIMEOUT)
             result.raise_for_status()

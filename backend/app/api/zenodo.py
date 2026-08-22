@@ -155,6 +155,7 @@ async def test_zenodo_connection(
         record = client.get_record(record_id)
         files = client.list_files(record)
         bson_files = client.bson_files(files)
+        supports_record_level_access = client.supports_record_level_issue_access(files)
         data = {
             "source": "zenodo",
             "recordId": str(record.get("id") or record_id),
@@ -163,12 +164,21 @@ async def test_zenodo_connection(
             "files": files,
             "bsonFiles": bson_files,
             "metadataAvailable": True,
+            "supportsRecordLevelAccess": supports_record_level_access,
         }
-        status_str = "available" if files else "restricted"
-        response = {"success": True, "data": {**data, "status": status_str, "message": "Zenodo metadata accessible."}}
-        if status_str == "restricted":
-            # cache restricted state to avoid repeat probes
-            service._set_cached(f"restricted:{record_id}", response)
+        if not supports_record_level_access:
+            response = {
+                "success": True,
+                "data": {
+                    **data,
+                    "status": "restricted",
+                    "message": "Public Zenodo access is archive-only; direct individual Jira issue retrieval is not available without downloading the BSON archive.",
+                },
+            }
+        else:
+            status_str = "available" if files else "restricted"
+            response = {"success": True, "data": {**data, "status": status_str, "message": "Zenodo metadata accessible."}}
+        service._set_cached(f"restricted:{record_id}", response)
         return response
     except ZenodoClientError as exc:
         return {"success": True, "data": {"source": "zenodo", "recordId": record_id, "status": "unavailable", "metadataAvailable": False, "message": str(exc)}}

@@ -3,7 +3,7 @@
 from typing import Any, Dict, List
 import requests
 
-from app.config import ZENODO_API_URL, ZENODO_REQUEST_TIMEOUT
+from app.config import ZENODO_ACCESS_TOKEN, ZENODO_API_URL, ZENODO_REQUEST_TIMEOUT
 
 
 class ZenodoClientError(RuntimeError):
@@ -13,22 +13,49 @@ class ZenodoClientError(RuntimeError):
 class ZenodoClient:
     """Lightweight Zenodo metadata client.
 
-    - Only fetches record metadata and lists files.
-    - Does NOT download dataset contents.
+    - Fetches record metadata and lists files.
+    - Uses the bearer token only if configured.
+    - Does NOT download the full archive unless explicitly invoked elsewhere.
     """
 
-    def __init__(self, api_url: str = ZENODO_API_URL, timeout: float = ZENODO_REQUEST_TIMEOUT) -> None:
+    def __init__(self, api_url: str = ZENODO_API_URL, timeout: float = ZENODO_REQUEST_TIMEOUT, access_token: str | None = None) -> None:
         self.api_url = api_url.rstrip("/")
         self.timeout = timeout
+        self.access_token = (access_token if access_token is not None else ZENODO_ACCESS_TOKEN) or ""
+
+    def _headers(self) -> Dict[str, str]:
+        headers = {"Accept": "application/json"}
+        if self.access_token:
+            headers["Authorization"] = f"Bearer {self.access_token}"
+        return headers
+
+    def _raise_for_status(self, response: requests.Response, record_id: str) -> None:
+        status_code = getattr(response, "status_code", 200)
+        if status_code == 401:
+            raise ZenodoClientError(f"Zenodo authentication failed for record {record_id}. Check ZENODO_ACCESS_TOKEN.")
+        if status_code == 403:
+            raise ZenodoClientError(f"Zenodo access is forbidden for record {record_id}.")
+        if status_code == 404:
+            raise ZenodoClientError(f"Zenodo record {record_id} was not found.")
+        if status_code == 429:
+            raise ZenodoClientError(f"Zenodo rate limit exceeded for record {record_id}.")
+        if hasattr(response, "raise_for_status"):
+            response.raise_for_status()
 
     def get_record(self, record_id: str) -> Dict[str, Any]:
-        url = f"{self.api_url}/{record_id}"
+        record_path = "" if self.api_url.endswith("/records") else "/records"
+        url = f"{self.api_url}{record_path}/{record_id}"
+        request_kwargs: Dict[str, Any] = {"timeout": self.timeout}
+        if self.access_token:
+            request_kwargs["headers"] = self._headers()
         try:
-            resp = requests.get(url, timeout=self.timeout)
-            resp.raise_for_status()
+            try:
+                resp = requests.get(url, **request_kwargs)
+            except TypeError:
+                # Support older or mocked request stubs that do not accept keyword headers.
+                resp = requests.get(url, timeout=self.timeout)
+            self._raise_for_status(resp, record_id)
             payload = resp.json()
-        except requests.HTTPError as exc:
-            raise ZenodoClientError(f"Zenodo returned HTTP {exc.response.status_code} for record {record_id}.") from exc
         except requests.RequestException as exc:
             raise ZenodoClientError(f"Unable to reach Zenodo: {exc}") from exc
         except ValueError as exc:
@@ -76,4 +103,18 @@ class ZenodoClient:
             if name.endswith(".bson") or name.endswith(".bson.gz") or name.endswith(".bson.tgz"):
                 candidates.append(f)
         return candidates
+
+    def supports_record_level_issue_access(self, files: List[Dict[str, Any]]) -> bool:
+        """Return True only when a real issue feed exists as structured JSON/text, not metadata or BSON archives."""
+        for f in files:
+            name = (f.get("name") or f.get("key") or "").lower()
+            if "issues" not in name:
+                continue
+            if "metadata" in name:
+                continue
+            if name.endswith(".bson") or name.endswith(".bson.gz") or name.endswith(".bson.tgz"):
+                continue
+            if name.endswith(".json") or name.endswith(".jsonl") or name.endswith(".json.gz") or name.endswith(".jsonl.gz"):
+                return True
+        return False
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import gzip
 import json
 from pathlib import Path
 from typing import Any, Iterator
@@ -27,6 +28,15 @@ def _fields(records: list[dict[str, Any]]) -> list[str]:
     for record in records:
         names.update(str(key) for key in record)
     return sorted(names)
+
+
+def _collection_name(path: Path) -> str:
+    name = path.name
+    for suffix in (".bson.gz", ".bson", ".gz"):
+        if name.lower().endswith(suffix):
+            name = name[: -len(suffix)]
+            break
+    return name or path.stem
 
 
 def _bson_records(handle: Any, sample_size: int) -> Iterator[dict[str, Any]]:
@@ -76,14 +86,16 @@ def _inspect_zip(path: Path, sample_size: int) -> dict[str, Any]:
 
 
 def _inspect_bson(path: Path, sample_size: int) -> dict[str, Any]:
-    with path.open("rb") as handle:
+    collection_name = _collection_name(path)
+    opener = gzip.open if path.name.lower().endswith(".gz") else open
+    with opener(path, "rb") as handle:
         records = list(_bson_records(handle, sample_size))
     return {
         "path": str(path),
         "archive_type": "mongodb",
-        "collections": [path.stem],
+        "collections": [collection_name],
         "bson_files": [path.name],
-        "collection_details": [{"name": path.stem, "sample_count": len(records), "fields": _fields(records)}],
+        "collection_details": [{"name": collection_name, "sample_count": len(records), "fields": _fields(records)}],
         "sample_records": [_json_safe(item) for item in records],
         "fields": _fields(records),
         "sample_count": len(records),
@@ -95,13 +107,13 @@ def inspect_path(path: Path, sample_size: int = 5) -> dict[str, Any]:
     sample_size = max(1, min(int(sample_size), 100))
     if path.suffix.lower() == ".zip":
         return _inspect_zip(path, sample_size)
-    if path.suffix.lower() == ".bson":
+    if path.name.lower().endswith((".bson", ".bson.gz")):
         return _inspect_bson(path, sample_size)
     if path.is_dir():
         archives = sorted(path.glob("*.zip"))
         if archives:
             return _inspect_zip(archives[0], sample_size)
-        bson_files = sorted(path.rglob("*.bson"))
+        bson_files = sorted(path.rglob("*.bson")) + sorted(path.rglob("*.bson.gz"))
         if bson_files:
             return _inspect_bson(bson_files[0], sample_size)
     raise ValueError(f"No ZIP or BSON MongoDB archive found at {path}")

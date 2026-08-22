@@ -16,14 +16,14 @@ def test_jira_issue_preserves_evidence_and_leaves_root_cause_unknown():
                 "status": {"name": "Resolved"},
             },
         },
-        source_url="https://zenodo.org/records/15719919",
+        source_url="https://zenodo.org/records/7740379",
     )
 
     assert record["incident_id"] == "PAY-42"
     assert record["resolution"] == "Fixed"
     assert record["root_cause"] is None
     assert "Investigating database saturation" in record["search_text"]
-    assert record["source_url"].endswith("15719919")
+    assert record["source_url"].endswith("7740379")
 
 
 def test_explicit_root_cause_is_extracted_without_model_inference():

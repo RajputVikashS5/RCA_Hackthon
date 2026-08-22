@@ -62,6 +62,43 @@ def _date(value: Any) -> Any:
     return value
 
 
+_LOW_QUALITY_TITLE_TERMS = (
+    "anavar",
+    "boldenona",
+    "buy ",
+    "casino",
+    "cialis",
+    "clenbuterol",
+    "dianabol",
+    "dublado",
+    "genotropin",
+    "gratis",
+    "hgh ",
+    "online",
+    "porn",
+    "proviron",
+    "regarder",
+    "roulette",
+    "salbutamol",
+    "slot ",
+    "steroid",
+    "streaming",
+    "stanozolol",
+    "sustanon",
+    "testosterone",
+    "testosterona",
+    "trenbolone",
+    "viagra",
+    "winstrol",
+    "xanax",
+)
+
+
+def _is_low_quality_title(title: str) -> bool:
+    normalized = title.casefold()
+    return any(term in normalized for term in _LOW_QUALITY_TITLE_TERMS)
+
+
 def _json_safe(value: Any) -> Any:
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
@@ -92,6 +129,8 @@ def transform_jira_issue(issue: dict[str, Any], source_url: str | None = None) -
     title = _text(_first(fields, "summary", "title", "name"))
     description = _text(_first(fields, "description", "details", "text"))
     if not incident_id or not title:
+        return None
+    if _is_low_quality_title(title):
         return None
 
     comments = _comment_text(fields, issue)

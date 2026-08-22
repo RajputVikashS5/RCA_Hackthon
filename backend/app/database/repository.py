@@ -25,7 +25,24 @@ def _register_vector(connection: Any) -> None:
     register_vector(connection)
 
 
+def _vector_type():
+    try:
+        from pgvector import Vector
+        return Vector
+    except ImportError:
+        from pgvector.psycopg import Vector
+        return Vector
+
+
 class IncidentRepository:
+
+    def delete_source(self, source: str) -> int:
+        with get_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("DELETE FROM incidents WHERE source = %s", (source,))
+                deleted = cursor.rowcount
+            connection.commit()
+        return deleted
 
     def upsert_batch(self, records: Iterable[dict[str, Any]]) -> int:
         rows = list(records)
@@ -85,9 +102,7 @@ class IncidentRepository:
 
                 # Convert the Python embedding list into a pgvector Vector.
                 # This prevents PostgreSQL from treating it as real[].
-                from pgvector.psycopg import Vector
-
-                query_vector = Vector(list(embedding))
+                query_vector = _vector_type()(list(embedding))
 
                 cursor.execute(
                     f"""

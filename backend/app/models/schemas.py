@@ -43,6 +43,10 @@ class SimilarIncident(BaseModel):
     title: str
     description: str
     project: Optional[str] = None
+    component: Optional[str] = None
+    severity: Optional[str] = None
+    environment: Optional[str] = None
+    incident_type: Optional[str] = None
     root_cause: Optional[str] = None
     resolution: Optional[str] = None
     similarity_score: float

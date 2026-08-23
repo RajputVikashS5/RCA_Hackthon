@@ -18,8 +18,10 @@ class DatabaseRetriever:
             if search_hybrid
             else self.repository.search(query_embedding, top_k=top_k)
         )
-        return [
+        filtered = [
             match
             for match in matches
             if float(match.get("similarity_score", 0.0)) >= MIN_SIMILARITY_SCORE
         ]
+        # Keep strict threshold when possible, but avoid empty search UX.
+        return filtered or list(matches)

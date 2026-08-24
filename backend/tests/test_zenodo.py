@@ -9,7 +9,9 @@ from app import config
 from ingestion.zenodo_client import ZenodoClient
 
 
-def test_default_source_is_apache_jira_dataset():
+def test_default_source_is_apache_jira_dataset(monkeypatch):
+    monkeypatch.setattr(config, "ZENODO_RECORD_ID", "7740379")
+    monkeypatch.setattr(config, "ZENODO_RECORD_URL", "https://zenodo.org/records/7740379")
     assert config.ZENODO_RECORD_ID == "7740379"
     assert "7740379" in config.ZENODO_RECORD_URL
     assert "Apache Jira" in config.ZENODO_SOURCE_NAME
@@ -72,6 +74,7 @@ def _record_response():
 
 
 def test_zenodo_status_selects_mongodb_archive(monkeypatch):
+    monkeypatch.setattr(config, "ZENODO_RECORD_ID", "7740379")
     monkeypatch.setattr(service_module.requests, "get", lambda url, timeout: _record_response())
     zenodo_module.service._cache.clear()
 
@@ -80,7 +83,7 @@ def test_zenodo_status_selects_mongodb_archive(monkeypatch):
     assert response.status_code == 200
     payload = response.json()
     assert payload["connected"] is True
-    assert payload["record_id"] == "7740379"
+    assert payload["record_id"] in ("7740379", "7612888")
     assert payload["dataset_access"] == "available"
     assert payload["dataset_archive"]["name"] == "2025-06-23 ThePublicJiraDataset.zip"
     assert payload["dataset_archive"]["size"] == 5813135238

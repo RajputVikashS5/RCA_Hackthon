@@ -116,20 +116,13 @@ class IncidentIngestionService:
             f"Title: {record.get('title', '').strip()}",
             "Description:",
             record.get("description", "").strip(),
-            "Root Cause:",
-            record.get("root_cause", "").strip(),
-            "Resolution:",
-            record.get("resolution", "").strip(),
         ]
 
-        optional_fields = ["component", "service", "severity", "environment", "incident_type", "date", "status", "tags"]
+        for field in ["component", "service", "severity", "environment", "incident_type", "tags"]:
+            if value := record.get(field):
+                parts.append(f"{field.replace('_', ' ').title()}: {str(value).strip()}")
 
-        for field in optional_fields:
-            value = record.get(field)
-            if value:
-                parts.append(f"{field.replace('_', ' ').title()}: {value}")
-
-        return "\n".join(part for part in parts if part)
+        return "\n".join(filter(None, parts))
 
     def _read_dataframe(self, file_path: Path) -> pd.DataFrame:
         suffix = file_path.suffix.lower()

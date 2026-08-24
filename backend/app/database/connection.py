@@ -15,7 +15,10 @@ _pool = None
 
 
 def _database_url() -> str | None:
-    return get_database_url()
+    url = get_database_url()
+    if url == "postgresql://username:password@hostname:5432/database":
+        return None
+    return url
 
 
 def _get_pool():

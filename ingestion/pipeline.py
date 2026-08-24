@@ -15,7 +15,7 @@ if str(BACKEND_ROOT) not in sys.path:
 from app.config import INGEST_BATCH_SIZE, INGEST_MAX_RECORDS
 from app.database.connection import initialize_database
 from app.database.repository import IncidentRepository
-from app.services.embedding import EmbeddingModel
+from app.services.embedding import SentenceTransformerEmbeddingService
 
 from ingestion.embedding_pipeline import embed_batch
 from ingestion.jira_reader import iter_batches
@@ -55,7 +55,7 @@ def ingest(
     repository = IncidentRepository()
     if replace_source:
         repository.delete_source("zenodo-public-jira-dataset-v7")
-    embedder = EmbeddingModel()
+    embedder = SentenceTransformerEmbeddingService()
     stats = IngestionStats()
     seen: set[str] = set()
 

@@ -8,7 +8,7 @@ from app.api import chat as chat_module
 from app.api import test_retriever as similar_module
 
 
-class FakeEmbeddingModel:
+class FakeSentenceTransformerEmbeddingService:
     def embed_query(self, question):
         return [0.0] * 384
 
@@ -65,7 +65,7 @@ class FakeAnalysisRepository:
 def configure_runtime_doubles(monkeypatch):
     for module in (chat_module, similar_module):
         module.retriever.repository = FakeRepository()
-        module.retriever.embedding_model = FakeEmbeddingModel()
+        module.retriever.embedding_model = FakeSentenceTransformerEmbeddingService()
     chat_module.llm.client = FakeGeminiClient()
     chat_module.analysis_repository = FakeAnalysisRepository()
 

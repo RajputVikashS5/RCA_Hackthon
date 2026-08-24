@@ -56,7 +56,32 @@ def seed():
         print(f"Created temporary dataset at {file_path}")
         try:
             records, stats = service.load_file(file_path)
-            print(f"Successfully ingested {stats.total_rows} records into vector store.")
+            
+            # Actually embed and insert the records
+            from app.database.repository import IncidentRepository
+            from app.services.embedding import SentenceTransformerEmbeddingService
+            from app.database.connection import initialize_database
+            
+            print("Initializing database...")
+            initialize_database()
+            
+            print("Generating embeddings...")
+            embedder = SentenceTransformerEmbeddingService()
+            embedder._ensure_model()
+            
+            embedded_records = []
+            for record in records:
+                record_dict = record.model_dump()
+                text_to_embed = service.build_search_text(record_dict)
+                embedding = embedder.model.encode(text_to_embed)
+                record_dict["embedding"] = embedding.tolist()
+                embedded_records.append(record_dict)
+                
+            print("Inserting into database...")
+            repository = IncidentRepository()
+            repository.upsert_batch(embedded_records)
+            
+            print(f"Successfully ingested {len(embedded_records)} records into vector store.")
         except Exception as e:
             print(f"Error during ingestion: {e}")
 

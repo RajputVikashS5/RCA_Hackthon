@@ -36,3 +36,11 @@ ingestion/.cache/
 # OS Files
 .DS_Store
 Thumbs.db
+# Environment Variables & Secrets
+.env
+.env.*
+!.env.example
+backend/.env
+frontend/.env
+frontend/.env.local
+*.pem

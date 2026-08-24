@@ -1,5 +1,5 @@
 from app.config import INCIDENTS_DIR
-from app.services.embedding import EmbeddingModel
+from app.services.embedding import SentenceTransformerEmbeddingService
 from app.services.incident_ingestion import IncidentIngestionError, IncidentIngestionService
 from app.services.vector_store import VectorStore
 
@@ -10,7 +10,7 @@ class RAGPipeline:
 
         self.loader = IncidentIngestionService()
 
-        self.embedding_model = EmbeddingModel()
+        self.embedding_model = SentenceTransformerEmbeddingService()
 
         self.vector_store = VectorStore()
 

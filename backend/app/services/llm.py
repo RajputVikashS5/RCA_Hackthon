@@ -136,13 +136,20 @@ Output JSON schema:
 
         evidence_incidents = self._build_evidence_incidents(supporting_ids, retrieved_incidents)
 
-        root_cause = self._clean_text(parsed.get("root_cause")) or self._fallback_root_cause()
-        resolution = self._clean_text(parsed.get("resolution")) or self._fallback_resolution()
+        root_cause = self._clean_text(parsed.get("root_cause")) or None
+        resolution = self._clean_text(parsed.get("resolution")) or None
         evidence_strength = self._clean_text(parsed.get("evidence_strength")) or self._derive_evidence_strength(retrieved_incidents)
         summary = self._clean_text(parsed.get("summary")) or self._fallback_summary()
         evidence_explanation = self._clean_text(parsed.get("evidence_explanation")) or self._evidence_explanation(retrieved_incidents)
 
+        confidence = evidence_strength.upper() if evidence_strength else "HIGH"
+        evidence_status = "SUFFICIENT"
+        message = "Successfully analyzed incident based on historical evidence."
+
         return {
+            "evidence_status": evidence_status,
+            "confidence": confidence,
+            "message": message,
             "root_cause": root_cause,
             "resolution": resolution,
             "evidence_strength": evidence_strength,
@@ -223,10 +230,13 @@ Output JSON schema:
         )
 
         return {
-            "root_cause": self._fallback_root_cause(),
-            "resolution": self._fallback_resolution(),
+            "evidence_status": "INSUFFICIENT",
+            "confidence": "INSUFFICIENT",
+            "message": "No sufficiently relevant historical incidents were found.",
+            "root_cause": None,
+            "resolution": None,
             "evidence_strength": "Insufficient",
-            "summary": self._fallback_summary(),
+            "summary": "No sufficiently relevant historical incidents were found.",
             "evidence_explanation": self._evidence_explanation(retrieved_incidents),
             "evidence_incidents": evidence_incidents,
         }

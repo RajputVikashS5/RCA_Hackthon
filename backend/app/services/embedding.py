@@ -1,12 +1,31 @@
+from abc import ABC, abstractmethod
 from sentence_transformers import SentenceTransformer
 import numpy as np
 
 from app.config import EMBEDDING_DIMENSION, EMBEDDING_MODEL_NAME
 
 
-class EmbeddingModel:
+class EmbeddingService(ABC):
     """
-    Generates embeddings for document chunks.
+    Abstract interface for embedding services.
+    """
+    
+    @abstractmethod
+    def embed_document(self, text: str):
+        pass
+        
+    @abstractmethod
+    def embed_documents(self, texts: list[str]):
+        pass
+        
+    @abstractmethod
+    def embed_query(self, query: str):
+        pass
+
+
+class SentenceTransformerEmbeddingService(EmbeddingService):
+    """
+    Generates embeddings for document chunks using SentenceTransformers.
     """
 
     def __init__(self):
@@ -32,7 +51,15 @@ class EmbeddingModel:
         norms = np.linalg.norm(array, axis=1, keepdims=True)
         return np.divide(array, norms, out=np.zeros_like(array), where=norms != 0)
 
-    def embed_documents(self, texts):
+    def embed_document(self, text: str):
+        self._ensure_model()
+        embeddings = self.model.encode(
+            text,
+            convert_to_numpy=True
+        )
+        return self._normalize(embeddings)
+
+    def embed_documents(self, texts: list[str]):
 
         self._ensure_model()
 
@@ -43,7 +70,7 @@ class EmbeddingModel:
         )
         return self._normalize(embeddings)
 
-    def embed_query(self, query):
+    def embed_query(self, query: str):
 
         self._ensure_model()
 

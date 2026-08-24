@@ -3,7 +3,7 @@ import numpy as np
 from app.services.database_retriever import DatabaseRetriever
 
 
-class FakeEmbeddingModel:
+class FakeSentenceTransformerEmbeddingService:
     def embed_query(self, question):
         return np.ones(384, dtype=np.float32)
 
@@ -19,7 +19,7 @@ class FakeRepository:
 
 def test_database_retriever_returns_repository_ordered_results():
     retriever = DatabaseRetriever(repository=FakeRepository())
-    retriever.embedding_model = FakeEmbeddingModel()
+    retriever.embedding_model = FakeSentenceTransformerEmbeddingService()
 
     results = retriever.retrieve("Payment checkout fails", top_k=5)
 
@@ -33,7 +33,7 @@ def test_database_retriever_supports_no_results():
             return []
 
     retriever = DatabaseRetriever(repository=EmptyRepository())
-    retriever.embedding_model = FakeEmbeddingModel()
+    retriever.embedding_model = FakeSentenceTransformerEmbeddingService()
 
     assert retriever.retrieve("No matching incident") == []
 
@@ -47,7 +47,7 @@ def test_database_retriever_filters_low_similarity_matches():
             ]
 
     retriever = DatabaseRetriever(repository=MixedRepository())
-    retriever.embedding_model = FakeEmbeddingModel()
+    retriever.embedding_model = FakeSentenceTransformerEmbeddingService()
 
     assert [item["incident_id"] for item in retriever.retrieve("Payment outage")] == ["INC-relevant"]
 
@@ -62,6 +62,6 @@ def test_database_retriever_uses_hybrid_search_when_available():
             raise AssertionError("Hybrid search should be preferred.")
 
     retriever = DatabaseRetriever(repository=HybridRepository())
-    retriever.embedding_model = FakeEmbeddingModel()
+    retriever.embedding_model = FakeSentenceTransformerEmbeddingService()
 
     assert retriever.retrieve("Parquet read failure")[0]["incident_id"] == "DRILL-816"

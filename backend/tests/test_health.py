@@ -11,6 +11,6 @@ def test_health_does_not_expose_database_credentials(monkeypatch):
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["status"] == "Healthy"
+    assert payload["status"] == "Unavailable"
     assert payload["database"] == "Unavailable"
     assert "DATABASE_URL" not in str(payload)

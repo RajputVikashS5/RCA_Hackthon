@@ -112,7 +112,7 @@ def test_weak_evidence_short_circuits_without_gemini_call():
     result = llm.generate_rca({"description": "A very different incident"}, retrieved)
 
     assert result["evidence_strength"] == "Insufficient"
-    assert "Insufficient historical evidence" in result["root_cause"]
+    assert result["root_cause"] is None
 
 
 def test_evidence_gate_uses_strongest_match_not_first_hybrid_result():
@@ -157,5 +157,5 @@ def test_null_like_model_root_cause_is_replaced_with_grounded_fallback():
         [{"incident_id": "DRILL-816", "similarity_score": 0.7}],
     )
 
-    assert result["root_cause"] == llm._fallback_root_cause()
+    assert result["root_cause"] is None
     assert result["resolution"] == "Fixed"

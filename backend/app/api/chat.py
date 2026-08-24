@@ -47,24 +47,62 @@ def _build_incident_query(request: IncidentAnalysisRequest) -> str:
     return "\n".join(parts)
 
 
+import logging
+
 @router.post("/analyze", response_model=IncidentAnalysisResponse)
 async def analyze_incident(request: IncidentAnalysisRequest):
-
+    logging.info("[ANALYSIS] Request received")
+    
     if not request.description.strip():
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Incident description cannot be empty.")
+    
+    logging.info("[ANALYSIS] Input validation passed")
 
     incident_query = _build_incident_query(request)
-
+    
+    logging.info("[EMBEDDING] Starting query embedding")
     try:
+        logging.info("[DATABASE] Connecting to PostgreSQL")
+        logging.info("[PGVECTOR] Searching historical incidents")
         retrieved_incidents = retriever.retrieve(incident_query, top_k=DEFAULT_TOP_K)
+        logging.info(f"[RETRIEVAL] Final evidence count={len(retrieved_incidents)}")
     except RuntimeError as exc:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+        logging.error(f"[VECTOR_SEARCH] Failed: {exc}")
+        # Use 500 so the frontend extracts the specific structured error message, unlike 503 which is hardcoded.
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": "The vector database search failed.", "code": "VECTOR_SEARCH_FAILED"}
+        ) from exc
 
+    logging.info("[RCA] Calling LLM")
     try:
         analysis = llm.generate_rca(request.model_dump(), retrieved_incidents)
+        logging.info("[RCA] LLM response received")
+        logging.info("[RCA] Response validation successful")
     except RuntimeError as exc:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+        logging.error(f"[RCA] LLM service unavailable: {exc}")
+        # Gracefully degrade: return 200 OK with available historical evidence.
+        evidence_incidents = []
+        if retrieved_incidents:
+            score_by_id = {inc.get("incident_id", ""): inc.get("similarity_score", 0.0) for inc in retrieved_incidents}
+            evidence_incidents = [
+                {"incident_id": inc_id, "similarity_score": score_by_id.get(inc_id, 0.0)}
+                for inc_id in [inc.get("incident_id", "") for inc in retrieved_incidents[:3] if inc.get("incident_id")]
+            ]
+        
+        analysis = {
+            "evidence_status": "AVAILABLE",
+            "confidence": "UNAVAILABLE",
+            "message": "Historical evidence available but RCA generation unavailable.",
+            "root_cause": None,
+            "resolution": None,
+            "evidence_strength": "Unavailable",
+            "summary": "RCA generation failed. Showing historical evidence only.",
+            "evidence_explanation": f"{len(retrieved_incidents)} historical incidents were retrieved successfully.",
+            "evidence_incidents": evidence_incidents,
+        }
     except ValueError as exc:
+        logging.error(f"[RCA] Generation failed: {exc}")
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
     response = IncidentAnalysisResponse(
@@ -72,9 +110,14 @@ async def analyze_incident(request: IncidentAnalysisRequest):
         retrieval_diagnostics=_retrieval_diagnostics(retrieved_incidents),
         **analysis,
     )
+    
     try:
+        logging.info("[HISTORY] Saving analysis")
         stored = analysis_repository.create(request.model_dump(), response.model_dump())
+        response.analysis_id = stored["id"]
     except RuntimeError as exc:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="RCA analysis completed, but could not be saved to history.") from exc
-    response.analysis_id = stored["id"]
+        logging.warning(f"[HISTORY] History storage failed: {exc}")
+        # Don't fail the entire request just because history failed.
+
+    logging.info("[ANALYSIS] Returning successful response")
     return response

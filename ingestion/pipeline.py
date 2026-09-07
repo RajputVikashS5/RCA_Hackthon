@@ -12,7 +12,7 @@ if str(PROJECT_ROOT) not in sys.path:
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from app.config import INGEST_BATCH_SIZE, INGEST_MAX_RECORDS
+from app.config import INGEST_BATCH_SIZE, INGEST_MAX_RECORDS, JIRA_DATA_DIR, R2_OBJECT_KEY
 from app.database.connection import initialize_database
 from app.database.repository import IncidentRepository
 from app.services.embedding import EmbeddingModel
@@ -21,6 +21,7 @@ from ingestion.embedding_pipeline import embed_batch
 from ingestion.jira_reader import iter_batches
 from ingestion.jira_transformer import transform_jira_issues
 from ingestion.postgres_loader import upsert_batch
+from ingestion.r2_reader import dataset_file
 
 
 @dataclass
@@ -59,7 +60,8 @@ def ingest(
     stats = IngestionStats()
     seen: set[str] = set()
 
-    for raw_batch in iter_batches(source, batch_size=batch_size, max_records=max_records, collection=collection, skip_records=skip_records):
+    limit = None if max_records == 0 else max_records
+    for raw_batch in iter_batches(source, batch_size=batch_size, max_records=limit, collection=collection, skip_records=skip_records):
         stats.discovered += len(raw_batch)
         stats.read += len(raw_batch)
         transformed = []
@@ -90,8 +92,10 @@ if __name__ == "__main__":
     import argparse
     import json
 
-    parser = argparse.ArgumentParser(description="Ingest bounded Jira BSON batches into PostgreSQL + pgvector.")
-    parser.add_argument("source", type=Path)
+    parser = argparse.ArgumentParser(description="Ingest Jira BSON batches into PostgreSQL + pgvector.")
+    parser.add_argument("source", type=Path, nargs="?", default=Path(JIRA_DATA_DIR), help="Local BSON/ZIP path (used with --source local).")
+    parser.add_argument("--source", choices=("local", "r2"), default="local", dest="source_type")
+    parser.add_argument("--r2-key", default=R2_OBJECT_KEY, help="R2 object key (used with --source r2).")
     parser.add_argument("--batch-size", type=int, default=INGEST_BATCH_SIZE)
     parser.add_argument("--max-records", type=int, default=INGEST_MAX_RECORDS)
     parser.add_argument("--collection")
@@ -102,4 +106,28 @@ if __name__ == "__main__":
         help="Delete existing Apache Jira records before rebuilding this source.",
     )
     args = parser.parse_args()
-    print(json.dumps(ingest(args.source, batch_size=args.batch_size, max_records=args.max_records, collection=args.collection, replace_source=args.replace_source, skip_records=args.skip_records), indent=2))
+    if args.source_type == "r2":
+        with dataset_file(args.r2_key) as local_source:
+            result = ingest(
+                local_source,
+                batch_size=args.batch_size,
+                max_records=args.max_records,
+                collection=args.collection,
+                replace_source=args.replace_source,
+                skip_records=args.skip_records,
+            )
+    else:
+        if args.source is None:
+            parser.error("a local source path is required when --source local is selected")
+        result = ingest(
+            args.source,
+            batch_size=args.batch_size,
+            max_records=args.max_records,
+            collection=args.collection,
+            replace_source=args.replace_source,
+            skip_records=args.skip_records,
+        )
+    result["source"] = args.source_type
+    result["dataset"] = args.r2_key if args.source_type == "r2" else str(args.source)
+    result["status"] = "completed"
+    print(json.dumps(result, indent=2))

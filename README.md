@@ -26,6 +26,32 @@ Zenodo is an external source dataset, not the application's live database. Metad
 - Gemini RCA synthesis grounded only in retrieved evidence
 - FastAPI API and Streamlit interface
 
+## Cloudflare R2 Dataset Storage
+
+R2 stores the raw Jira archive while PostgreSQL + pgvector stores transformed incidents and embeddings.
+
+1. Create a Cloudflare R2 bucket and a restricted S3 API token.
+2. Add the server-side `R2_*` values from `.env.example` to `backend/.env`.
+3. Test with a small file before uploading the full archive:
+
+   ```bash
+   python ingestion/upload_dataset.py --file test-r2.txt --key test/test-r2.txt
+   ```
+
+4. Upload the Jira archive with a predictable key:
+
+   ```bash
+   python ingestion/upload_dataset.py --file "E:\path\to\jira-dataset.zip" --key raw/jira-dataset.zip
+   ```
+
+5. Check `GET /api/dataset/status`, then ingest a bounded sample:
+
+   ```bash
+   python ingestion/pipeline.py --source r2 --max-records 1000
+   ```
+
+6. Verify the resulting records and embeddings in PostgreSQL before setting `INGEST_MAX_RECORDS=0` for a full batch ingestion.
+
 ## Setup
 
 Install dependencies:
@@ -102,6 +128,7 @@ npm run dev
 - `GET /api/zenodo/status` reports metadata access, archive availability, all files, sizes, and download URLs.
 - `POST /api/zenodo/inspect` inspects a bounded sample of a locally downloaded ZIP/BSON archive.
 - `GET /api/zenodo/ingestion/status` reports the database knowledge-base status and confirms that ingestion is an explicit offline operation.
+- `GET /api/dataset`, `GET /api/dataset/files`, and `GET /api/dataset/status` expose R2 metadata only; they never download the raw archive to a browser.
 
 ## Data and security
 

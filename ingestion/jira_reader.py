@@ -20,7 +20,15 @@ def _archive_path(source: Path) -> Path:
         if not bson_files:
             raise FileNotFoundError(f"No ZIP or BSON archive found under {source}")
         return bson_files[0]
-    return archives[0]
+    explicit = [
+        archive for archive in archives
+        if any(token in archive.name.lower() for token in ("jira", "issue", "publicjira"))
+    ]
+    if not explicit:
+        raise FileNotFoundError(
+            f"No explicit Jira dataset ZIP found under {source}; pass the BSON file or Jira archive path directly."
+        )
+    return explicit[0]
 
 
 def _issue_member(names: list[str], collection: str | None = None) -> str:
@@ -66,7 +74,7 @@ def iter_issue_documents(
                             continue
                         yield record
                         yielded += 1
-                        if max_records is not None and yielded >= max_records:
+                        if max_records is not None and max_records > 0 and yielded >= max_records:
                             return
                 except Exception as exc:
                     if yielded == 0:
@@ -82,7 +90,7 @@ def iter_issue_documents(
                 continue
             yield record
             yielded += 1
-            if max_records is not None and yielded >= max_records:
+            if max_records is not None and max_records > 0 and yielded >= max_records:
                 return
 
 

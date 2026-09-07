@@ -6,17 +6,34 @@ __pycache__/
 
 # Virtual Environment
 backend/venv/
+__pycache__/
+*.pyc
+
+.pytest_cache/
+.venv/
+venv/
+
+node_modules/
+
+*.db
+*.sqlite
 
 # Environment Variables
+.env
+.env.*
+!.env.example
 
-
+backend/.env
+frontend/.env
 # Streamlit Cache
 .streamlit/
 
 # VS Code
 .vscode/
 
-# Vector Database (optional)
+#
+
+ Vector Database (optional)
 backend/app/vector_db/
 
 # Uploaded Incident Datasets

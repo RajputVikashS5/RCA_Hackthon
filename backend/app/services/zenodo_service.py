@@ -206,7 +206,10 @@ class ZenodoService:
         return files
 
     def _dataset_archive(self, files: list[dict[str, Any]]) -> dict[str, Any] | None:
-        candidates = [item for item in files if item.get("name", "").lower().endswith(".zip")]
+        candidates = [
+            item for item in files
+            if self._is_explicit_jira_archive(str(item.get("name", "")))
+        ]
         if not candidates:
             return None
         candidates.sort(key=lambda item: (
@@ -222,6 +225,15 @@ class ZenodoService:
             "available": bool(selected.get("download_url")),
             "archive_type": "mongodb",
         }
+
+    @staticmethod
+    def _is_explicit_jira_archive(name: str) -> bool:
+        lower = name.lower()
+        if lower.endswith((".bson", ".bson.gz", ".bson.tgz")):
+            return "issue" in lower or "jira" in lower
+        return lower.endswith(".zip") and any(
+            marker in lower for marker in ("jira", "publicjira", "issue")
+        )
 
     @staticmethod
     def _is_anonymized(title: str, description: str) -> bool | None:

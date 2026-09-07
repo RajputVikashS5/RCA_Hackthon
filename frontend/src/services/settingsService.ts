@@ -29,7 +29,7 @@ const DEFAULT_SETTINGS: ApplicationSettings = {
   },
   providers: {
     llmProvider: 'Configured Provider',
-    llmModel: 'gpt-4o-mini',
+    llmModel: 'gemini-2.5-flash',
     embeddingProvider: 'Local',
     embeddingModel: 'all-MiniLM-L6-v2',
     llmStatus: 'Connected',

@@ -20,3 +20,4 @@ httpx
 streamlit
 requests
 pymongo
+boto3

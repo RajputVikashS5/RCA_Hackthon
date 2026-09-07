@@ -8,9 +8,11 @@ from app.api.test_retriever import router as retriever_router
 from app.api.upload import router as upload_router
 from app.api.zenodo import router as zenodo_router
 from app.api.analysis_history import router as analysis_history_router
+from app.api.dataset import router as dataset_router
 from app.config import GOOGLE_API_KEY
+from app.services.dataset_service import DatasetService
 from app.database.connection import get_database_status, initialize_database
-
+from app.config import CORS_ALLOWED_ORIGINS
 
 cors_origins = [
     origin.strip()
@@ -26,8 +28,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=cors_origins,
-    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
+    allow_origins=CORS_ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -43,6 +44,7 @@ app.include_router(retriever_router)
 app.include_router(upload_router)
 app.include_router(zenodo_router)
 app.include_router(analysis_history_router)
+app.include_router(dataset_router)
 
 
 @app.get("/")
@@ -56,6 +58,7 @@ async def home():
 async def api_health():
     database = get_database_status()
     database_available = database["database"] == "Connected"
+    dataset_status = DatasetService().status()
     return {
         "status": "Healthy",
         **database,
@@ -66,6 +69,8 @@ async def api_health():
             "existing_dataset": "available" if database["incident_records"] else "no indexed records",
             # Zenodo is intentionally not contacted by health checks or RCA.
             "zenodo": "optional",
+            "r2_configured": dataset_status["configured"],
+            "r2_bucket_accessible": dataset_status["bucket_accessible"],
         },
     }
 

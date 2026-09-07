@@ -15,7 +15,7 @@ def get_database_url() -> str | None:
 
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-DATABASE_URL = get_database_url()
+DATABASE_URL = os.getenv("DATABASE_URL")
 DEFAULT_TOP_K = int(os.getenv("DEFAULT_TOP_K", "5"))
 MIN_SIMILARITY_SCORE = float(os.getenv("MIN_SIMILARITY_SCORE", "0.35"))
 EMBEDDING_MODEL_NAME = os.getenv(
@@ -37,6 +37,20 @@ ZENODO_CACHE_TTL = int(os.getenv("ZENODO_CACHE_TTL", "3600"))
 ZENODO_REQUEST_TIMEOUT = float(os.getenv("ZENODO_REQUEST_TIMEOUT", "30"))
 ZENODO_SAMPLE_SIZE = int(os.getenv("ZENODO_SAMPLE_SIZE", "5"))
 JIRA_DATA_DIR = os.getenv("JIRA_DATA_DIR", "C:/external/jira-data")
+R2_ENDPOINT_URL = os.getenv("R2_ENDPOINT_URL", "")
+R2_ACCESS_KEY_ID = os.getenv("R2_ACCESS_KEY_ID", "")
+R2_SECRET_ACCESS_KEY = os.getenv("R2_SECRET_ACCESS_KEY", "")
+R2_BUCKET_NAME = os.getenv("R2_BUCKET_NAME", "rca-jira-dataset")
+R2_REGION = os.getenv("R2_REGION", "auto")
+R2_ACCOUNT_ID = os.getenv("R2_ACCOUNT_ID", "")
+R2_DATASET_KEY = os.getenv(
+    "R2_DATASET_KEY",
+    os.getenv("R2_OBJECT_KEY", "jira/2025-06-23 ThePublicJiraDataset.zip"),
+)
+R2_OBJECT_KEY = R2_DATASET_KEY
+R2_MANIFEST_KEY = os.getenv("R2_MANIFEST_KEY", "dataset-manifest.json")
+R2_MULTIPART_THRESHOLD_MB = int(os.getenv("R2_MULTIPART_THRESHOLD_MB", "64"))
+R2_MULTIPART_CHUNKSIZE_MB = int(os.getenv("R2_MULTIPART_CHUNKSIZE_MB", "64"))
 
 DOCUMENTS_DIR = os.path.join(str(BASE_DIR), "data", "documents")
 INCIDENTS_DIR = os.path.join(BASE_DIR, "data", "incidents")
@@ -48,3 +62,11 @@ os.makedirs(DOCUMENTS_DIR, exist_ok=True)
 os.makedirs(INCIDENTS_DIR, exist_ok=True)
 os.makedirs(VECTOR_DB_DIR, exist_ok=True)
 os.makedirs(INCIDENT_VECTOR_DB_DIR, exist_ok=True)
+CORS_ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv(
+        "CORS_ALLOWED_ORIGINS",
+        "http://localhost:5173",
+    ).split(",")
+    if origin.strip()
+]

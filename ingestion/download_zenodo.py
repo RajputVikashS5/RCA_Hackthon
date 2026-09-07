@@ -45,9 +45,9 @@ def _archive_priority(name: str) -> tuple[int, int]:
     lower = name.lower()
     if "issues" in lower and _is_bson_archive(lower):
         return (0, 0)
-    if _is_bson_archive(lower):
+    if _is_bson_archive(lower) and ("jira" in lower or "issue" in lower):
         return (1, 0)
-    if lower.endswith(".zip"):
+    if lower.endswith(".zip") and any(marker in lower for marker in ("jira", "publicjira", "issue")):
         return (2, 0)
     return (3, 0)
 
@@ -55,10 +55,26 @@ def _archive_priority(name: str) -> tuple[int, int]:
 def select_dataset_archive(files: list[dict]) -> dict:
     candidates = [
         item for item in files
-        if str(item.get("key", "")).lower().endswith((".zip", ".bson", ".bson.gz", ".bson.tgz"))
+        if (
+            _is_bson_archive(str(item.get("key", "")))
+            and any(marker in str(item.get("key", "")).lower() for marker in ("jira", "issue"))
+        )
+        or (
+            str(item.get("key", "")).lower().endswith(".zip")
+            and any(marker in str(item.get("key", "")).lower() for marker in ("jira", "publicjira", "issue"))
+        )
     ]
     if not candidates:
-        raise RuntimeError("Zenodo record has no MongoDB archive.")
+        legacy_archives = [
+            item for item in files
+            if str(item.get("key", "")).lower().endswith((".zip", ".bson", ".bson.gz", ".bson.tgz"))
+        ]
+        if len(legacy_archives) == 1:
+            # Preserve the historical single-archive workflow. When multiple archives
+            # exist, only an explicitly Jira-named archive is accepted.
+            candidates = legacy_archives
+        else:
+            raise RuntimeError("Zenodo record has no explicit Jira MongoDB archive.")
     candidates.sort(key=lambda item: (
         _archive_priority(str(item.get("key", ""))),
         -int(item.get("size") or 0),

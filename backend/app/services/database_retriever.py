@@ -23,5 +23,6 @@ class DatabaseRetriever:
             for match in matches
             if float(match.get("similarity_score", 0.0)) >= MIN_SIMILARITY_SCORE
         ]
-        # Keep strict threshold when possible, but avoid empty search UX.
-        return filtered or list(matches)
+        # Hybrid keyword scores can rank weak semantic matches highly. Do not
+        # expose those rows as RCA evidence when none meet the semantic gate.
+        return filtered

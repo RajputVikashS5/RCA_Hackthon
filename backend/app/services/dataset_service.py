@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import PurePosixPath
 from typing import Any
 
 from app.config import R2_MANIFEST_KEY, R2_OBJECT_KEY
@@ -11,7 +12,8 @@ class DatasetService:
         self.storage = storage or R2Storage()
 
     def files(self) -> list[dict[str, Any]]:
-        return self.storage.list_objects(prefix="raw/")
+        prefix = str(PurePosixPath(R2_OBJECT_KEY).parent)
+        return self.storage.list_objects(prefix=f"{prefix}/" if prefix != "." else "")
 
     def metadata(self) -> dict[str, Any]:
         manifest: dict[str, Any] | None = None

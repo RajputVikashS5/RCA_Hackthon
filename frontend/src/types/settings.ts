@@ -64,6 +64,7 @@ export interface SystemStatus {
   llmService: 'Operational' | 'Degraded' | 'Down' | 'Unknown';
   knowledgeBase: 'Ready' | 'Building' | 'Error' | 'Unknown';
   lastChecked: string;
+  details?: Record<string, { status: string; detail?: string; model?: string; dimension?: number }>;
 }
 
 export interface ApplicationSettings {

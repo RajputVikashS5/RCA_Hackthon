@@ -3,6 +3,8 @@ from app.config import DEFAULT_TOP_K, MIN_SIMILARITY_SCORE
 from app.models.schemas import IncidentAnalysisRequest, IncidentAnalysisResponse
 from app.services.llm import GeminiLLM
 from app.services.retriever import Retriever
+from app.services.adaptive_evidence import AdaptiveEvidenceService
+from app.services.r2_storage import R2StorageError
 from app.database.analysis_repository import AnalysisRepository
 from fastapi import APIRouter, HTTPException, status
 
@@ -12,6 +14,7 @@ router = APIRouter(
 )
 
 retriever = Retriever()
+adaptive_evidence = AdaptiveEvidenceService(retriever)
 llm = GeminiLLM()
 analysis_repository = AnalysisRepository()
 
@@ -56,9 +59,18 @@ async def analyze_incident(request: IncidentAnalysisRequest):
     incident_query = _build_incident_query(request)
 
     try:
-        retrieved_incidents = retriever.retrieve(incident_query, top_k=DEFAULT_TOP_K)
+        adaptive_evidence.repository = retriever.repository
+        evidence = adaptive_evidence.retrieve(
+            incident_query,
+            request.model_dump(),
+            top_k=DEFAULT_TOP_K,
+        )
+        retrieved_incidents = evidence.incidents
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    except R2StorageError:
+        evidence = None
+        retrieved_incidents = retriever.retrieve(incident_query, top_k=DEFAULT_TOP_K)
 
     try:
         analysis = llm.generate_rca(request.model_dump(), retrieved_incidents)
@@ -69,7 +81,29 @@ async def analyze_incident(request: IncidentAnalysisRequest):
 
     response = IncidentAnalysisResponse(
         similar_incidents=retrieved_incidents,
-        retrieval_diagnostics=_retrieval_diagnostics(retrieved_incidents),
+        retrieval_diagnostics={
+            **_retrieval_diagnostics(retrieved_incidents),
+            "evidence_state": evidence.evaluation.state if evidence else "INITIAL_ONLY",
+            "evidence_score": evidence.evaluation.score if evidence else 0.0,
+            "initial_evidence_state": evidence.initial_evaluation.state if evidence else "INITIAL_ONLY",
+            "evidence_expansion_used": evidence.expansion_used if evidence else False,
+            "r2_candidates_found": evidence.r2_candidates_found if evidence else 0,
+            "r2_incidents_ingested": evidence.r2_incidents_ingested if evidence else 0,
+            "r2_incident_ids": evidence.r2_incident_ids if evidence else [],
+            "provenance": (
+                "PostgreSQL + R2 adaptive evidence expansion"
+                if evidence and evidence.expansion_used
+                else "PostgreSQL historical knowledge base"
+            ),
+        },
+        evidence_expansion_used=evidence.expansion_used if evidence else False,
+        r2_candidates_found=evidence.r2_candidates_found if evidence else 0,
+        r2_incidents_ingested=evidence.r2_incidents_ingested if evidence else 0,
+        provenance=(
+            "PostgreSQL + R2 adaptive evidence expansion"
+            if evidence and evidence.expansion_used
+            else "PostgreSQL historical knowledge base"
+        ),
         **analysis,
     )
     try:

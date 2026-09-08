@@ -14,10 +14,17 @@ def get_database_url() -> str | None:
 
 
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
 DATABASE_URL = os.getenv("DATABASE_URL")
 DEFAULT_TOP_K = int(os.getenv("DEFAULT_TOP_K", "5"))
 MIN_SIMILARITY_SCORE = float(os.getenv("MIN_SIMILARITY_SCORE", "0.35"))
+RCA_STRONG_THRESHOLD = float(os.getenv("RCA_STRONG_THRESHOLD", "0.82"))
+RCA_MEDIUM_THRESHOLD = float(os.getenv("RCA_MEDIUM_THRESHOLD", "0.65"))
+RCA_WEAK_THRESHOLD = float(os.getenv("RCA_WEAK_THRESHOLD", "0.35"))
+R2_EXPANSION_ENABLED = os.getenv("R2_EXPANSION_ENABLED", "true").lower() in {"1", "true", "yes"}
+R2_MAX_CANDIDATES = int(os.getenv("R2_MAX_CANDIDATES", "10"))
+R2_CATALOG_KEY = os.getenv("R2_CATALOG_KEY", "incident-catalog.json")
+R2_CATALOG_MAX_BYTES = int(os.getenv("R2_CATALOG_MAX_BYTES", str(16 * 1024 * 1024)))
 EMBEDDING_MODEL_NAME = os.getenv(
 	"EMBEDDING_MODEL_NAME",
 	"sentence-transformers/all-MiniLM-L6-v2",

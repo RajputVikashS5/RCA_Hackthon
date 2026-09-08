@@ -12,8 +12,15 @@ export const SystemStatusSection: React.FC = () => {
     try {
       const data = await fetchSystemStatus();
       setStatus(data);
-    } catch (e) {
-      console.error(e);
+    } catch {
+      setStatus({
+        api: 'Down',
+        vectorDatabase: 'Unknown',
+        embeddingService: 'Unknown',
+        llmService: 'Unknown',
+        knowledgeBase: 'Unknown',
+        lastChecked: new Date().toLocaleTimeString(),
+      });
     } finally {
       setRefreshing(false);
     }

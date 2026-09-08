@@ -10,7 +10,6 @@ class EmbeddingModel:
     """
 
     def __init__(self):
-
         self.model = None
 
     def _ensure_model(self):
@@ -52,3 +51,19 @@ class EmbeddingModel:
             convert_to_numpy=True
         )
         return self._normalize(embeddings)
+
+    def healthcheck(self) -> dict[str, object]:
+        """Load the configured model and verify the production vector contract."""
+        try:
+            embedding = self.embed_query("health check")
+            return {
+                "status": "available",
+                "model": EMBEDDING_MODEL_NAME,
+                "dimension": int(embedding.shape[-1]),
+            }
+        except Exception:
+            return {
+                "status": "unavailable",
+                "model": EMBEDDING_MODEL_NAME,
+                "dimension": EMBEDDING_DIMENSION,
+            }

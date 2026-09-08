@@ -29,7 +29,7 @@ const DEFAULT_SETTINGS: ApplicationSettings = {
   },
   providers: {
     llmProvider: 'Configured Provider',
-    llmModel: 'gemini-2.5-flash',
+    llmModel: 'gemini-3.6-flash',
     embeddingProvider: 'Local',
     embeddingModel: 'all-MiniLM-L6-v2',
     llmStatus: 'Connected',
@@ -53,15 +53,6 @@ const DEFAULT_SETTINGS: ApplicationSettings = {
     theme: 'System',
     compactMode: false
   }
-};
-
-const DEFAULT_STATUS: SystemStatus = {
-  api: 'Operational',
-  vectorDatabase: 'Operational',
-  embeddingService: 'Operational',
-  llmService: 'Operational',
-  knowledgeBase: 'Ready',
-  lastChecked: new Date().toLocaleTimeString()
 };
 
 export const fetchSettings = async (): Promise<ApplicationSettings> => {
@@ -97,9 +88,18 @@ export const saveSettings = async (settings: ApplicationSettings): Promise<void>
 };
 
 export const fetchSystemStatus = async (): Promise<SystemStatus> => {
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      resolve({ ...DEFAULT_STATUS, lastChecked: new Date().toLocaleTimeString() });
-    }, 400);
-  });
+  const response = await fetch('/api/health');
+  const payload = await response.json();
+  const dependencies = payload.dependencies || {};
+  const state = (name: string, fallback: string) =>
+    dependencies[name]?.status === 'available' ? fallback : 'Down';
+  return {
+    api: state('api', 'Operational') as SystemStatus['api'],
+    vectorDatabase: state('pgvector', 'Operational') as SystemStatus['vectorDatabase'],
+    embeddingService: state('embedding_model', 'Operational') as SystemStatus['embeddingService'],
+    llmService: state('gemini', 'Operational') as SystemStatus['llmService'],
+    knowledgeBase: payload.incident_records > 0 ? 'Ready' : 'Error',
+    lastChecked: new Date().toLocaleTimeString(),
+    details: dependencies,
+  };
 };

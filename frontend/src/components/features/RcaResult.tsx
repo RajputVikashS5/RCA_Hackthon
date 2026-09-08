@@ -41,10 +41,23 @@ const RcaResult: React.FC<RcaResultProps> = ({ result }) => {
         {result.evidence_explanation && (
           <p className="body-sm text-muted" style={{ marginTop: '12px', lineHeight: '1.5' }}>{result.evidence_explanation}</p>
         )}
+        {result.generation_mode === 'historical_fallback' && (
+          <div style={{ marginTop: '16px', padding: '12px 16px', backgroundColor: 'rgba(245, 158, 11, 0.1)', color: 'var(--warning)', borderRadius: '8px', fontSize: '13px' }}>
+            Gemini is unavailable. This RCA is a direct summary of the strongest documented historical evidence.
+          </div>
+        )}
         
         {result.evidence_strength === "Insufficient" && (
           <div style={{ marginTop: '16px', padding: '12px 16px', backgroundColor: 'rgba(245, 158, 11, 0.1)', color: 'var(--warning)', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
             <AlertTriangle size={16} /> Insufficient historical evidence was found to determine a reliable root cause.
+          </div>
+        )}
+        {result.retrieval_diagnostics && (
+          <div className="caption" style={{ marginTop: '16px', display: 'flex', flexWrap: 'wrap', gap: '12px' }}>
+            <span>Evidence source: {result.retrieval_diagnostics.provenance || result.provenance || 'PostgreSQL historical knowledge base'}</span>
+            <span>Retrieved: {String(result.retrieval_diagnostics.retrieved_incidents ?? 0)}</span>
+            <span>Supporting: {String(result.evidence_incidents?.length ?? 0)}</span>
+            {result.evidence_expansion_used && <span>R2 expansion: {result.r2_candidates_found ?? 0} candidates, {result.r2_incidents_ingested ?? 0} ingested</span>}
           </div>
         )}
       </div>

@@ -133,3 +133,7 @@ npm run dev
 ## Data and security
 
 Do not commit `.env`, database credentials, Zenodo archives, exported Jira records, generated embeddings, or local vector artifacts. See `.gitignore` and `.env.example`.
+
+## RCA validation
+
+See [`docs/RCA_ARCHITECTURE.md`](docs/RCA_ARCHITECTURE.md) for runtime boundaries and [`docs/RCA_EVALUATION.md`](docs/RCA_EVALUATION.md) for the measured evaluation method. [`docs/FINAL_RCA_VALIDATION_REPORT.md`](docs/FINAL_RCA_VALIDATION_REPORT.md) records the current verified and unverified status. PostgreSQL remains the source of truth for incidents and analysis history; local browser state is not a second database.

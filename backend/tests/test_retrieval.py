@@ -52,6 +52,17 @@ def test_database_retriever_filters_low_similarity_matches():
     assert [item["incident_id"] for item in retriever.retrieve("Payment outage")] == ["INC-relevant"]
 
 
+def test_database_retriever_does_not_return_only_weak_matches_as_evidence():
+    class WeakRepository:
+        def search(self, embedding, top_k=5):
+            return [{"incident_id": "INC-weak", "similarity_score": 0.34}]
+
+    retriever = DatabaseRetriever(repository=WeakRepository())
+    retriever.embedding_model = FakeEmbeddingModel()
+
+    assert retriever.retrieve("Unrelated outage") == []
+
+
 def test_database_retriever_uses_hybrid_search_when_available():
     class HybridRepository:
         def search_hybrid(self, embedding, question, top_k=5):

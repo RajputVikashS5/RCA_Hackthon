@@ -36,6 +36,18 @@ def _vector_type():
 
 class IncidentRepository:
 
+    def existing_incident_ids(self, incident_ids: Sequence[str]) -> set[str]:
+        ids = [str(value).strip() for value in incident_ids if str(value).strip()]
+        if not ids:
+            return set()
+        with get_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT incident_id FROM incidents WHERE incident_id = ANY(%s)",
+                    (ids,),
+                )
+                return {str(row[0]) for row in cursor.fetchall()}
+
     def delete_source(self, source: str) -> int:
         with get_connection() as connection:
             with connection.cursor() as cursor:

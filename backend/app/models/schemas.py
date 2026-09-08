@@ -84,6 +84,11 @@ class IncidentAnalysisResponse(BaseModel):
     evidence_explanation: str = ""
     similar_incidents: List[SimilarIncident] = Field(default_factory=list)
     retrieval_diagnostics: Dict[str, Any] = Field(default_factory=dict)
+    generation_mode: Optional[str] = None
+    evidence_expansion_used: bool = False
+    r2_candidates_found: int = 0
+    r2_incidents_ingested: int = 0
+    provenance: Optional[str] = None
 
 
 class StoredAnalysisResponse(BaseModel):

@@ -41,6 +41,7 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup_event():
     initialize_database()
+    health_embedding_model._ensure_model()
 
 app.include_router(chat_router)
 app.include_router(retriever_router)

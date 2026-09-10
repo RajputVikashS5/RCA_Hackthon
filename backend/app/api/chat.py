@@ -66,11 +66,11 @@ async def analyze_incident(request: IncidentAnalysisRequest):
             top_k=DEFAULT_TOP_K,
         )
         retrieved_incidents = evidence.incidents
-    except RuntimeError as exc:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
     except R2StorageError:
         evidence = None
         retrieved_incidents = retriever.retrieve(incident_query, top_k=DEFAULT_TOP_K)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
 
     try:
         analysis = llm.generate_rca(request.model_dump(), retrieved_incidents)

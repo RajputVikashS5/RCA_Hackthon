@@ -14,7 +14,14 @@ from app.config import GOOGLE_API_KEY, GEMINI_MODEL, MIN_SIMILARITY_SCORE
 class GeminiLLM:
 
     def __init__(self):
-        self.client = genai.Client(api_key=GOOGLE_API_KEY) if GOOGLE_API_KEY else None
+        self.client = (
+            genai.Client(
+                api_key=GOOGLE_API_KEY,
+                http_options=types.HttpOptions(timeout=8000),
+            )
+            if GOOGLE_API_KEY
+            else None
+        )
 
     def healthcheck(self) -> dict[str, str]:
         """Check both configuration and access to the configured Gemini model."""

@@ -76,11 +76,11 @@ class SimilarIncidentResponse(BaseModel):
 
 class IncidentAnalysisResponse(BaseModel):
     analysis_id: Optional[str] = None
-    root_cause: str
-    resolution: str
+    root_cause: Optional[str] = None
+    resolution: Optional[str] = None
     evidence_incidents: List[EvidenceIncident] = Field(default_factory=list)
-    evidence_strength: str
-    summary: str
+    evidence_strength: Optional[str] = "Insufficient"
+    summary: Optional[str] = ""
     evidence_explanation: str = ""
     similar_incidents: List[SimilarIncident] = Field(default_factory=list)
     retrieval_diagnostics: Dict[str, Any] = Field(default_factory=dict)

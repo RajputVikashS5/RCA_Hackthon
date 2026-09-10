@@ -3,6 +3,20 @@ import type { SystemStatus } from '../../../types/settings';
 import { fetchSystemStatus } from '../../../services/settingsService';
 import { SettingsSection } from '../FormControls';
 
+function StatusIndicator({ state }: { state: string }) {
+  let color = 'var(--muted)';
+  if (state === 'Operational' || state === 'Ready') color = 'var(--success)';
+  if (state === 'Degraded' || state === 'Building') color = 'var(--warning)';
+  if (state === 'Down' || state === 'Error') color = 'var(--error)';
+  
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', fontWeight: 500, color }}>
+      <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'currentColor' }}></span>
+      {state}
+    </div>
+  );
+}
+
 export const SystemStatusSection: React.FC = () => {
   const [status, setStatus] = useState<SystemStatus | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -29,20 +43,6 @@ export const SystemStatusSection: React.FC = () => {
   useEffect(() => {
     loadStatus();
   }, []);
-
-  const StatusIndicator = ({ state }: { state: string }) => {
-    let color = 'var(--muted)';
-    if (state === 'Operational' || state === 'Ready') color = 'var(--success)';
-    if (state === 'Degraded' || state === 'Building') color = 'var(--warning)';
-    if (state === 'Down' || state === 'Error') color = 'var(--error)';
-    
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', fontWeight: 500, color }}>
-        <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'currentColor' }}></span>
-        {state}
-      </div>
-    );
-  };
 
   return (
     <SettingsSection 

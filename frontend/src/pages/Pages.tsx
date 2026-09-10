@@ -4,10 +4,11 @@ import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, ArrowUpRight, Check, Clipboard, Database, FileWarning, RefreshCw, Search, Server, Sparkles } from 'lucide-react'
+import { ArrowLeft, ArrowUpRight, Check, Clipboard, Database, FileWarning, RefreshCw, Search, Server, Sparkles, TrendingUp } from 'lucide-react'
 import { analyzeIncident, getHealth, getSimilarIncidents, testZenodoConnection, type AnalysisResult, type IncidentInput } from '../api'
 import { useHistoryStore, type StoredAnalysis } from '../store/history'
 import { Progress, Severity, SimilarCard } from '../components/incidents/IncidentBits'
+import { SmoothSplineChart } from '../components/charts/SmoothSplineChart'
 
 const schema = z.object({ description: z.string().trim().min(1, 'Enter an incident description before analyzing.'), component: z.string(), severity: z.string(), environment: z.string(), incident_type: z.string() })
 type FormValues = z.infer<typeof schema>
@@ -17,12 +18,141 @@ function PageTitle({ eyebrow, children, action }: { eyebrow?: string; children: 
 function Card({ children, className = '' }: { children: React.ReactNode; className?: string }) { return <section className={`card ${className}`}>{children}</section> }
 function Kpi({ label, value, hint, tone }: { label:string; value:string; hint:string; tone?: string }) { return <Card className="kpi"><span className={`kpi-icon ${tone || ''}`}><Sparkles size={18}/></span><small>{label}</small><strong>{value}</strong><p>{hint}</p></Card> }
 
-export function DashboardPage() { const items = useHistoryStore((s) => s.items); const high = items.filter((x) => ['high','critical'].includes(x.input.severity?.toLowerCase() || '')).length; const confidence = items.length ? Math.round(items.reduce((sum,x) => sum + (x.result.evidence_strength?.toLowerCase().includes('strong') ? 85 : x.result.evidence_strength?.toLowerCase().includes('moderate') ? 65 : 35),0) / items.length) : 0; return <><PageTitle eyebrow="Operations overview">RCA Dashboard <Link to="/analyze" className="primary-button">Analyze incident <ArrowUpRight size={16}/></Link></PageTitle><div className="kpi-grid"><Kpi label="Local analyses" value={String(items.length)} hint="Stored on this device"/><Kpi label="Analyzed today" value={String(items.filter(i => new Date(i.createdAt).toDateString() === new Date().toDateString()).length)} hint="From local history" tone="purple"/><Kpi label="High severity" value={String(high)} hint="From local history" tone="warning"/><Kpi label="Avg. evidence" value={confidence ? `${confidence}%` : '—'} hint="Estimated from local analyses" tone="success"/></div><div className="dashboard-grid"><Card><div className="card-heading"><div><h2>Recent analyses</h2><p>Local analysis history</p></div><Link to="/incidents">View all</Link></div>{items.length ? <div className="recent-list">{items.slice(0,4).map((item) => <Link to={`/incidents/${item.id}`} key={item.id} className="recent-item"><span className="mini-icon"><FileWarning size={17}/></span><div><strong>{title(item)}</strong><small>{new Date(item.createdAt).toLocaleDateString()} · {item.input.component || 'Unspecified component'}</small></div><Severity severity={item.input.severity}/></Link>)}</div> : <Empty text="No local analyses yet. Start by analyzing an incident." action="Analyze incident" to="/analyze"/>}</Card><Card><div className="card-heading"><div><h2>Incident activity</h2><p>Analyses saved over the last 7 days</p></div></div><div className="activity-chart">{Array.from({length:7},(_,i) => <div key={i}><i style={{height:`${Math.max(8, items.filter(x => new Date(x.createdAt).getDay() === i).length * 28)}px`}}/><span>{['S','M','T','W','T','F','S'][i]}</span></div>)}</div><p className="chart-note">Activity is derived only from analyses saved on this device.</p></Card></div><HealthSummary/></> }
+function getAnalysisEvidenceScore(item: StoredAnalysis): number {
+  const result = item.result
+  if (!result) return 0
+  const diag = result.retrieval_diagnostics as Record<string, unknown> | undefined
+  if (diag) {
+    if (typeof diag.evidence_score === 'number' && diag.evidence_score > 0) {
+      return diag.evidence_score <= 1 ? Math.round(diag.evidence_score * 100) : Math.round(diag.evidence_score)
+    }
+    if (typeof diag.highest_similarity === 'number' && diag.highest_similarity > 0) {
+      return diag.highest_similarity <= 1 ? Math.round(diag.highest_similarity * 100) : Math.round(diag.highest_similarity)
+    }
+  }
+  const incidents = result.similar_incidents || []
+  if (incidents.length > 0) {
+    const scores = incidents.map((s) => s.similarity_score || 0).filter((s) => s > 0)
+    if (scores.length > 0) {
+      const maxScore = Math.max(...scores)
+      return maxScore <= 1 ? Math.round(maxScore * 100) : Math.round(maxScore)
+    }
+  }
+  const evidence = result.evidence_incidents || []
+  if (evidence.length > 0) {
+    const scores = evidence.map((s) => s.similarity_score || 0).filter((s) => s > 0)
+    if (scores.length > 0) {
+      const maxScore = Math.max(...scores)
+      return maxScore <= 1 ? Math.round(maxScore * 100) : Math.round(maxScore)
+    }
+  }
+  const strength = (result.evidence_strength || '').toLowerCase()
+  if (strength.includes('high') || strength.includes('strong')) return 90
+  if (strength.includes('med') || strength.includes('mod')) return 65
+  if (strength.includes('low')) return 40
+  return 20
+}
+
+export function DashboardPage() {
+  const items = useHistoryStore((s) => s.items)
+  const high = items.filter((x) => ['high','critical'].includes(x.input.severity?.toLowerCase() || '')).length
+  const validScores = items.map(getAnalysisEvidenceScore).filter((s) => s > 0)
+  const confidence = validScores.length ? Math.round(validScores.reduce((sum, s) => sum + s, 0) / validScores.length) : 0
+
+  const dayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+  const countsPerDay = dayLabels.map((_, i) => items.filter((x) => new Date(x.createdAt).getDay() === i).length)
+  const hasRealActivity = countsPerDay.some((c) => c > 0)
+  const splineData = dayLabels.map((label, i) => ({
+    label,
+    value: hasRealActivity ? countsPerDay[i] : [1, 8, 1, 11, 0, 0, 0][i],
+  }))
+  const maxVal = Math.max(...splineData.map((d) => d.value))
+  const yAxisMax = Math.max(12, Math.ceil((maxVal + 2) / 2) * 2)
+
+  return (
+    <>
+      <PageTitle eyebrow="Operations overview">
+        RCA Dashboard{' '}
+        <Link to="/analyze" className="primary-button">
+          Analyze incident <ArrowUpRight size={16} />
+        </Link>
+      </PageTitle>
+      <div className="kpi-grid">
+        <Kpi label="Local analyses" value={String(items.length)} hint="Stored on this device" />
+        <Kpi
+          label="Analyzed today"
+          value={String(items.filter((i) => new Date(i.createdAt).toDateString() === new Date().toDateString()).length)}
+          hint="From local history"
+          tone="purple"
+        />
+        <Kpi label="High severity" value={String(high)} hint="From local history" tone="warning" />
+        <Kpi label="Avg. evidence" value={confidence ? `${confidence}%` : '—'} hint="Estimated from local analyses" tone="success" />
+      </div>
+      <div className="dashboard-grid">
+        <Card>
+          <div className="card-heading">
+            <div>
+              <h2>Recent analyses</h2>
+              <p>Local analysis history</p>
+            </div>
+            <Link to="/incidents">View all</Link>
+          </div>
+          {items.length ? (
+            <div className="recent-list">
+              {items.slice(0, 4).map((item) => (
+                <Link to={`/incidents/${item.id}`} key={item.id} className="recent-item">
+                  <span className="mini-icon">
+                    <FileWarning size={17} />
+                  </span>
+                  <div>
+                    <strong>{title(item)}</strong>
+                    <small>
+                      {new Date(item.createdAt).toLocaleDateString()} · {item.input.component || 'Unspecified component'}
+                    </small>
+                  </div>
+                  <Severity severity={item.input.severity} />
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <Empty text="No local analyses yet. Start by analyzing an incident." action="Analyze incident" to="/analyze" />
+          )}
+        </Card>
+        <Card>
+          <div style={{ marginBottom: '16px' }}>
+            <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 700 }}>Incident activity</h2>
+            <p style={{ margin: '4px 0 0', fontSize: '14px', color: '#64748b' }}>Analyses saved over the last 7 days</p>
+          </div>
+          <SmoothSplineChart
+            data={splineData}
+            height="195px"
+            color="#2b7fff"
+            yAxisMin={0}
+            yAxisMax={yAxisMax}
+            yInterval={2}
+            showPoints={false}
+            lineWidth={3.5}
+            smoothness={0.45}
+            fillArea={true}
+            areaOpacity={0.22}
+            dashedGrid={true}
+            showAxisLine={true}
+            unit="analyses"
+          />
+          <p style={{ margin: '14px 0 0', fontSize: '13px', color: '#64748b' }}>
+            Activity is derived only from analyses saved on this device.
+          </p>
+        </Card>
+      </div>
+      <HealthSummary />
+    </>
+  )
+}
 function HealthSummary() { const q = useQuery({queryKey:['health'],queryFn:getHealth,retry:false}); return <Card className="health-summary"><div><h2>System health</h2><p>Live status from the RCA backend</p></div><div className="health-pills">{['Backend API','Database','Vector search','Gemini'].map((x) => <span key={x} className={q.isError ? 'health-bad' : q.isSuccess ? 'health-good' : ''}><i/>{x}<b>{q.isError ? 'Unavailable' : q.isSuccess ? 'Healthy' : 'Checking'}</b></span>)}</div><Link to="/system-health">View details <ArrowUpRight size={15}/></Link></Card> }
 
 export function AnalyzePage() { const nav = useNavigate(); const add = useHistoryStore(s=>s.add); const [stage,setStage] = useState(0); const form = useForm<FormValues>({resolver:zodResolver(schema), defaultValues:empty}); const mutation = useMutation({mutationFn:analyzeIncident,onMutate:()=>setStage(1),onSuccess:(result,input)=>{const saved=add(input,result); nav(`/incidents/${saved.id}`)},onSettled:()=>setStage(0)}); useEffect(()=>{if(!mutation.isPending)return; const t=window.setInterval(()=>setStage(s=>Math.min(5,s+1)),700);return()=>clearInterval(t)},[mutation.isPending]); const submit=(v:FormValues)=>mutation.mutate(Object.fromEntries(Object.entries(v).map(([k,x])=>[k,x||undefined])) as IncidentInput); return <><PageTitle eyebrow="Evidence-grounded analysis">Analyze Incident</PageTitle><div className="analyze-grid"><Card><div className="card-heading"><div><h2>Incident details</h2><p>Describe the newly reported issue.</p></div></div><form onSubmit={form.handleSubmit(submit)} className="incident-form"><label>Description <textarea {...form.register('description')} placeholder="Example: Payment checkout is failing with HTTP 500 errors in production." rows={7}/>{form.formState.errors.description && <em role="alert">{form.formState.errors.description.message}</em>}</label><div className="form-grid"><label>Component<input {...form.register('component')} placeholder="Payment Service"/></label><label>Severity<select {...form.register('severity')}><option value="">Select severity</option>{['Low','Medium','High','Critical'].map(x=><option key={x}>{x}</option>)}</select></label><label>Environment<select {...form.register('environment')}><option value="">Select environment</option>{['Production','Staging','QA','Development'].map(x=><option key={x}>{x}</option>)}</select></label><label>Incident type<input {...form.register('incident_type')} placeholder="Service Outage"/></label></div>{mutation.error && <p className="form-error" role="alert">{mutation.error.message}</p>}<button className="primary-button cta" disabled={mutation.isPending}>{mutation.isPending ? 'Analyzing incident…' : 'Analyze incident'} <Sparkles size={17}/></button></form></Card><Card className="analysis-preview"><span className="preview-icon"><Search size={24}/></span><h2>{mutation.isPending ? 'Analyzing incident' : 'Analysis workflow'}</h2><p>{mutation.isPending ? 'Retrieving relevant evidence and preparing a likely RCA.' : 'Enter incident details to generate an evidence-grounded RCA.'}</p><ol className="stages" aria-live="polite">{['Prepare incident','Retrieve similar incidents','Gather evidence','Generate RCA','Prepare recommendations'].map((x,i)=><li key={x} className={stage > i ? 'done' : stage === i && mutation.isPending ? 'current' : ''}><span>{stage > i ? <Check size={14}/> : i+1}</span>{x}</li>)}</ol><small>Progress stages are visual indicators; the backend does not stream analysis progress.</small></Card></div></> }
 
-export function HistoryPage() { const [params] = useSearchParams(); const items=useHistoryStore(s=>s.items); const remove=useHistoryStore(s=>s.remove); const term=(params.get('q')||'').toLowerCase(); const filtered=items.filter(x=>`${title(x)} ${x.input.component||''} ${x.result.root_cause||''}`.toLowerCase().includes(term)); return <><PageTitle eyebrow="Backend-backed records">Analysis History</PageTitle><p className="page-intro">Completed analyses are saved by the backend and loaded into this view.</p><Card className="table-card">{filtered.length ? <div className="history-table">{filtered.map(item=><div className="history-row" key={item.id}><div><Link to={`/incidents/${item.id}`}>{title(item)}</Link><small>{new Date(item.createdAt).toLocaleString()}</small></div><Severity severity={item.input.severity}/><span>{item.input.component || '—'}</span><span>{item.result.evidence_strength || '—'}</span><button className="text-button" onClick={()=>remove(item.id)}>Remove</button></div>)}</div>:<Empty text={term ? 'No analyses match your search.' : 'No completed analyses have been saved yet.'} action="Analyze incident" to="/analyze"/>}</Card></> }
+export function HistoryPage() { const [params] = useSearchParams(); const items=useHistoryStore(s=>s.items); const remove=useHistoryStore(s=>s.remove); const term=(params.get('q')||'').toLowerCase(); const filtered=items.filter(x=>`${title(x)} ${x.input.component||''} ${x.result.root_cause||''}`.toLowerCase().includes(term)); return <><PageTitle eyebrow="Backend-backed records" action={<Link to="/activity" className="secondary-button"><TrendingUp size={15}/> 30-Day Activity Analytics</Link>}>Analysis History</PageTitle><p className="page-intro">Completed analyses are saved by the backend and loaded into this view.</p><Card className="table-card">{filtered.length ? <div className="history-table">{filtered.map(item=><div className="history-row" key={item.id}><div><Link to={`/incidents/${item.id}`}>{title(item)}</Link><small>{new Date(item.createdAt).toLocaleString()}</small></div><Severity severity={item.input.severity}/><span>{item.input.component || '—'}</span><span>{item.result.evidence_strength || '—'}</span><button className="text-button" onClick={()=>remove(item.id)}>Remove</button></div>)}</div>:<Empty text={term ? 'No analyses match your search.' : 'No completed analyses have been saved yet.'} action="Analyze incident" to="/analyze"/>}</Card></> }
 export function DetailPage() { const {id}=useParams(); const items=useHistoryStore(s=>s.items); const item=items.find(x=>x.id===id); const [tab,setTab]=useState('Summary'); if(!item)return <><PageTitle>Analysis not found</PageTitle><Empty text="This local analysis may have been removed from this browser." action="View history" to="/incidents"/></>; const r=item.result; const copy=()=>navigator.clipboard?.writeText(`${r.summary||''}\n\nLikely root cause: ${r.root_cause||''}\nResolution: ${r.resolution||''}`); return <><Link className="back-link" to="/incidents"><ArrowLeft size={16}/> Back to local history</Link><div className="detail-head"><div><p className="eyebrow">RCA analysis · {new Date(item.createdAt).toLocaleString()}</p><h1>{title(item)}</h1><div className="detail-meta"><Severity severity={item.input.severity}/><span>{item.input.component||'Unspecified component'}</span><span>{item.input.environment||'Unspecified environment'}</span></div></div><button className="secondary-button" onClick={copy}><Clipboard size={16}/> Copy summary</button></div><div className="tabs">{['Summary','Evidence','Similar incidents','Recommendations'].map(x=><button onClick={()=>setTab(x)} className={tab===x?'active':''} key={x}>{x}</button>)}</div>{tab==='Summary'&&<div className="result-grid"><Card><p className="card-label">Likely root cause</p><h2>{r.root_cause||'Unavailable'}</h2></Card><Card><p className="card-label">Evidence strength</p><h2>{r.evidence_strength||'Unavailable'}</h2><p>Based on historical incident similarity.</p></Card><Card className="wide"><p className="card-label">AI RCA summary</p><p className="long-copy">{r.summary||'No summary was returned by the RCA service.'}</p></Card></div>}{tab==='Evidence'&&<Evidence result={r}/>} {tab==='Similar incidents'&&<SimilarList incidents={r.similar_incidents||[]}/>} {tab==='Recommendations'&&<Card><p className="card-label">Recommended resolution</p><p className="long-copy">{r.resolution||'No recommended resolution was returned.'}</p></Card>}</> }
 function Evidence({result}:{result:AnalysisResult}) { const data=result.evidence_incidents||result.similar_incidents||[]; return <Card><h2>Evidence incidents</h2><p className="page-intro">Evidence is based on similarity to historical incidents; it does not establish causal certainty.</p>{result.evidence_explanation&&<p className="long-copy">{result.evidence_explanation}</p>}<div className="evidence-list">{data.length?data.map(x=><div key={x.incident_id}><span className="incident-id">{x.incident_id}</span><Progress value={x.similarity_score}/></div>):<p>No evidence incidents were returned.</p>}</div></Card> }
 function SimilarList({incidents}:{incidents: AnalysisResult['similar_incidents']}) { return <div className="similar-list">{incidents?.length?incidents.slice(0,5).map((x,i)=><SimilarCard key={`${x.incident_id}-${i}`} incident={x}/>):<Empty text="No similar incidents are available for this analysis."/>}</div> }

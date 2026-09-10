@@ -17,7 +17,7 @@ class GeminiLLM:
         self.client = (
             genai.Client(
                 api_key=GOOGLE_API_KEY,
-                http_options=types.HttpOptions(timeout=8000),
+                http_options=types.HttpOptions(timeout=30000),
             )
             if GOOGLE_API_KEY
             else None

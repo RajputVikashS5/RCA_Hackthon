@@ -1,11 +1,12 @@
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
+from app.api.auth import require_api_auth
 from app.database.analysis_repository import AnalysisRepository
 from app.models.schemas import StoredAnalysisResponse
 
-router = APIRouter(prefix="/api/analyses", tags=["RCA Analysis History"])
+router = APIRouter(prefix="/api/analyses", tags=["RCA Analysis History"], dependencies=[Depends(require_api_auth)])
 repository = AnalysisRepository()
 
 

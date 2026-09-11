@@ -8,7 +8,12 @@ from typing import Any, Dict, List
 from google import genai
 from google.genai import types
 
-from app.config import GOOGLE_API_KEY, GEMINI_MODEL, MIN_SIMILARITY_SCORE
+from app.config import (
+    GOOGLE_API_KEY,
+    GEMINI_MODEL,
+    MIN_SIMILARITY_SCORE,
+    RCA_MEDIUM_THRESHOLD,
+)
 
 
 class GeminiLLM:
@@ -17,7 +22,7 @@ class GeminiLLM:
         self.client = (
             genai.Client(
                 api_key=GOOGLE_API_KEY,
-                http_options=types.HttpOptions(timeout=8000),
+                http_options=types.HttpOptions(timeout=30000),
             )
             if GOOGLE_API_KEY
             else None
@@ -55,11 +60,6 @@ class GeminiLLM:
         return {"status": "available", "reason": "model_reachable", "model": GEMINI_MODEL}
 
     def generate_rca(self, incident, retrieved_incidents):
-        current_assessment = self._assess_current_incident(incident)
-
-        if current_assessment and current_assessment["evidence_strength"] == "High":
-            return self._current_evidence_response(current_assessment, retrieved_incidents)
-
         if not self.client:
             raise RuntimeError("GOOGLE_API_KEY is missing. Set the Gemini API key before analyzing incidents.")
 
@@ -70,7 +70,7 @@ class GeminiLLM:
             float(item.get("similarity_score", 0.0))
             for item in retrieved_incidents
         )
-        if best_similarity < MIN_SIMILARITY_SCORE:
+        if best_similarity < RCA_MEDIUM_THRESHOLD:
             return self._insufficient_evidence_response(retrieved_incidents)
 
         prompt = self._build_prompt(incident, retrieved_incidents)
@@ -85,66 +85,6 @@ class GeminiLLM:
         except (TypeError, ValueError, json.JSONDecodeError) as exc:
             return self._historical_fallback(retrieved_incidents, exc)
         return self._finalize_response(parsed, retrieved_incidents)
-
-    def _assess_current_incident(self, incident: Dict[str, Any]) -> Dict[str, Any] | None:
-        """Extract high-confidence, explicitly documented evidence from the current incident."""
-        text = " ".join(
-            str(incident.get(field) or "")
-            for field in ("description", "component", "incident_type")
-        ).casefold()
-
-        profiles = (
-            (
-                ("dns", "service discovery", "resolution failure"),
-                ("packet loss", "network loss", "network failure"),
-                "Intermittent network packet loss between service discovery nodes causing DNS and service discovery resolution failures.",
-                "Investigate the service-discovery network path, packet loss, and DNS resolution health before restarting application instances.",
-                "DNS failures, service-discovery resolution failures, and network packet loss are explicitly reported in the current incident.",
-            ),
-            (
-                ("connection pool", "pool exhausted", "waiting for database connection"),
-                ("database", "sql", "db"),
-                "Database connection pool exhaustion is preventing requests from obtaining database connections.",
-                "Increase or correct database connection-pool capacity and investigate connection leaks.",
-                "The current incident explicitly reports database connection-pool exhaustion or wait timeouts.",
-            ),
-            (
-                ("column", "does not exist", "unknown column"),
-                ("migration", "schema", "database"),
-                "The deployed application schema is ahead of the production database because a required migration was not applied.",
-                "Apply and verify the missing production database migration, then restart or redeploy the affected service.",
-                "The current incident explicitly reports a missing database column together with migration or schema evidence.",
-            ),
-            (
-                ("memory", "heap", "out of memory"),
-                ("increases", "leak", "crash", "restart"),
-                "A memory leak is causing sustained memory growth and eventual service failure.",
-                "Capture a heap profile, identify the leaking allocation, and deploy the fix; use restart only as temporary mitigation.",
-                "The current incident explicitly reports sustained memory growth and service failure or temporary restart recovery.",
-            ),
-        )
-
-        for primary_terms, supporting_terms, root_cause, resolution, explanation in profiles:
-            if all(term in text for term in primary_terms) and any(term in text for term in supporting_terms):
-                return {
-                    "root_cause": root_cause,
-                    "resolution": resolution,
-                    "evidence_strength": "High",
-                    "summary": f"Current-incident evidence indicates {root_cause[0].lower() + root_cause[1:]}",
-                    "evidence_explanation": explanation,
-                }
-        return None
-
-    def _current_evidence_response(
-        self,
-        assessment: Dict[str, Any],
-        retrieved_incidents: List[Dict[str, Any]],
-    ) -> Dict[str, Any]:
-        return {
-            **assessment,
-            "evidence_incidents": [],
-            "generation_mode": "current_incident_evidence",
-        }
 
     def _generate_content(self, prompt: str) -> Any:
         config = types.GenerateContentConfig(

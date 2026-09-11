@@ -102,7 +102,10 @@ class R2CandidateDiscovery:
             body = self.storage.get_object(self.catalog_key).get("Body")
             if body is None:
                 return []
-            payload = json.loads(body.read(self.max_bytes + 1))
+            raw_payload = body.read(self.max_bytes + 1)
+            if len(raw_payload) > self.max_bytes:
+                raise R2StorageError("The R2 incident catalog exceeds the configured size limit.")
+            payload = json.loads(raw_payload)
         except R2StorageError:
             raise
         except (ValueError, TypeError, json.JSONDecodeError) as exc:
@@ -182,7 +185,12 @@ class AdaptiveEvidenceService:
             return AdaptiveEvidenceResult(initial, initial_evaluation, initial_evaluation)
 
         discover = getattr(self.discovery, "search_r2_candidates", None) or self.discovery.search
-        candidates = discover(incident)
+        try:
+            candidates = discover(incident)
+        except R2StorageError:
+            # R2 is an optional expansion source; preserve the primary
+            # PostgreSQL result when the catalog is temporarily unavailable.
+            return AdaptiveEvidenceResult(initial, initial_evaluation, initial_evaluation)
         relevant = [
             candidate for candidate in candidates
             if candidate.get("incident_id") and candidate.get("title") and candidate.get("description")

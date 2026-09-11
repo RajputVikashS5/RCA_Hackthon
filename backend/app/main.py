@@ -1,5 +1,3 @@
-import os
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -10,16 +8,11 @@ from app.api.zenodo import router as zenodo_router
 from app.api.analysis_history import router as analysis_history_router
 from app.api.dataset import router as dataset_router
 from app.services.dataset_service import DatasetService
-from app.database.connection import get_database_status, initialize_database
+from app.database.connection import get_database_status, verify_database_schema
 from app.config import CORS_ALLOWED_ORIGINS
 from app.services.embedding import EmbeddingModel
 from app.services.llm import GeminiLLM
 
-cors_origins = [
-    origin.strip()
-    for origin in os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",")
-    if origin.strip()
-]
 health_embedding_model = EmbeddingModel()
 health_llm = GeminiLLM()
 
@@ -40,7 +33,7 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup_event():
-    initialize_database()
+    verify_database_schema()
     health_embedding_model._ensure_model()
 
 app.include_router(chat_router)

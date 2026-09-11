@@ -328,6 +328,7 @@ function generate30DayIncidentDataset(localAnalyses: StoredAnalysis[]): Incident
 
 export function IncidentActivityPage() {
   const localItems = useHistoryStore((s) => s.items)
+  const [referenceTime] = useState(() => Date.now())
   const [timeRange, setTimeRange] = useState<TimeRange>('30d')
   const [severityFilter, setSeverityFilter] = useState<string>('All')
   const [categoryFilter, setCategoryFilter] = useState<string>('All')
@@ -341,9 +342,9 @@ export function IncidentActivityPage() {
   const daysLimit = timeRange === '7d' ? 7 : timeRange === '14d' ? 14 : 30
 
   const filteredByTime = useMemo(() => {
-    const cutoff = new Date(Date.now() - daysLimit * 24 * 60 * 60 * 1000)
+    const cutoff = new Date(referenceTime - daysLimit * 24 * 60 * 60 * 1000)
     return fullDataset.filter((item) => new Date(item.date) >= cutoff)
-  }, [fullDataset, daysLimit])
+  }, [fullDataset, daysLimit, referenceTime])
 
   const finalFiltered = useMemo(() => {
     return filteredByTime.filter((item) => {
@@ -391,7 +392,7 @@ export function IncidentActivityPage() {
     const daysMap: Record<string, { date: string; critical: number; high: number; medium: number; low: number; total: number; resolved: number }> = {}
 
     for (let i = daysLimit - 1; i >= 0; i--) {
-      const d = new Date(Date.now() - i * 24 * 60 * 60 * 1000)
+      const d = new Date(referenceTime - i * 24 * 60 * 60 * 1000)
       const dateStr = d.toISOString().split('T')[0]
       const label = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
       daysMap[dateStr] = { date: label, critical: 0, high: 0, medium: 0, low: 0, total: 0, resolved: 0 }
@@ -409,7 +410,7 @@ export function IncidentActivityPage() {
     })
 
     return Object.values(daysMap)
-  }, [filteredByTime, daysLimit])
+  }, [filteredByTime, daysLimit, referenceTime])
 
   // ECharts Configuration for 30-Day Activity Bar & Trend with Rich Animations
   const timelineChartOption = useMemo(() => {

@@ -172,7 +172,7 @@ def transform_jira_issue(issue: dict[str, Any], source_url: str | None = None) -
         "status": _named(_first(fields, "status", "state")),
         "created_at": _date(_first(issue, "created", "created_at") or _first(fields, "created", "created_at")),
         "updated_at": _date(_first(issue, "updated", "updated_at") or _first(fields, "updated", "updated_at")),
-        "source": "zenodo-public-jira-dataset-v7",
+        "source": ZENODO_SOURCE,
         "source_url": source_url,
         "metadata": {
             "raw_issue_id": _json_safe(issue.get("_id") or issue.get("id")),
@@ -191,3 +191,4 @@ def transform_jira_issues(issues: Iterable[dict[str, Any]], source_url: str | No
         transformed = transform_jira_issue(issue, source_url=source_url)
         if transformed:
             yield transformed
+ZENODO_SOURCE = "zenodo"

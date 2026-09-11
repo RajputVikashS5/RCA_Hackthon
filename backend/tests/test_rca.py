@@ -88,8 +88,19 @@ def test_successful_gemini_rca_response_is_parsed_and_grounded():
     assert result["generation_mode"] == "gemini"
 
 
-def test_explicit_current_network_evidence_overrides_historical_root_cause():
+def test_current_incident_terms_do_not_bypass_historical_evidence():
     llm = GeminiLLM()
+    llm.client = FakeGeminiClient(
+        json.dumps(
+            {
+                "root_cause": "Payment gateway connection saturation.",
+                "resolution": "Raise gateway connection limits.",
+                "evidence_strength": "Medium",
+                "summary": "The historical match is the only available evidence.",
+                "supporting_incident_ids": ["PAY-1002"],
+            }
+        )
+    )
     result = llm.generate_rca(
         {
             "description": (
@@ -112,10 +123,8 @@ def test_explicit_current_network_evidence_overrides_historical_root_cause():
         ],
     )
 
-    assert "packet loss" in result["root_cause"].casefold()
-    assert "payment gateway" not in result["root_cause"].casefold()
-    assert result["evidence_strength"] == "High"
-    assert result["generation_mode"] == "current_incident_evidence"
+    assert result["root_cause"] == "Payment gateway connection saturation."
+    assert result["generation_mode"] == "gemini"
 
 
 def test_invalid_gemini_response_uses_historical_fallback():

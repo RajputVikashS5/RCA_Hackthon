@@ -46,7 +46,7 @@ def get_connection() -> Iterator[Any]:
 
 
 def initialize_database() -> None:
-    """Create the pgvector extension, schema, and vector index once per setup run."""
+    """Provision the baseline schema explicitly during setup or deployment."""
     with get_connection() as connection:
         with connection.cursor() as cursor:
             cursor.execute("CREATE EXTENSION IF NOT EXISTS vector")
@@ -100,6 +100,19 @@ def initialize_database() -> None:
                 """
             )
         connection.commit()
+
+
+def verify_database_schema() -> None:
+    """Verify that the explicitly provisioned database is ready for the API."""
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'vector')")
+            if not cursor.fetchone()[0]:
+                raise RuntimeError("The pgvector extension is missing. Run python -m app.database.init_db.")
+            cursor.execute("SELECT to_regclass('public.incidents'), to_regclass('public.rca_analyses')")
+            incidents, analyses = cursor.fetchone()
+            if not incidents or not analyses:
+                raise RuntimeError("Database schema is missing. Run python -m app.database.init_db before starting the API.")
 
 
 def get_database_status() -> dict[str, Any]:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import time
 from typing import Any, Callable
 
 from app.config import (
@@ -26,6 +27,7 @@ class R2Storage:
             try:
                 import boto3
                 from boto3.s3.transfer import TransferConfig
+                from botocore.config import Config
             except ImportError as exc:  # pragma: no cover - dependency is deployment-provided
                 raise R2StorageError("The boto3 dependency is not installed.") from exc
             self._client = boto3.client(
@@ -34,6 +36,7 @@ class R2Storage:
                 aws_access_key_id=R2_ACCESS_KEY_ID,
                 aws_secret_access_key=R2_SECRET_ACCESS_KEY,
                 region_name=R2_REGION,
+                config=Config(connect_timeout=15, read_timeout=30, retries={"max_attempts": 2}),
             )
             self.transfer_config = TransferConfig(
                 multipart_threshold=R2_MULTIPART_THRESHOLD_MB * 1024 * 1024,
@@ -76,10 +79,74 @@ class R2Storage:
         path = Path(destination)
         path.parent.mkdir(parents=True, exist_ok=True)
         try:
-            client.download_file(self.bucket, object_key, str(path))
+            size = int(client.head_object(Bucket=self.bucket, Key=object_key)["ContentLength"])
+            range_size = 64 * 1024 * 1024
+            downloaded = 0
+            next_report = 256 * 1024 * 1024
+            with path.open("wb") as handle:
+                while downloaded < size:
+                    end = min(downloaded + range_size, size) - 1
+                    for attempt in range(3):
+                        body = None
+                        try:
+                            request: dict[str, Any] = {"Bucket": self.bucket, "Key": object_key}
+                            if size > range_size:
+                                request["Range"] = f"bytes={downloaded}-{end}"
+                            response = client.get_object(**request)
+                            body = response["Body"]
+                            expected = end - downloaded + 1
+                            received = 0
+                            handle.seek(downloaded)
+                            while received < expected:
+                                chunk = body.read(min(8 * 1024 * 1024, expected - received))
+                                if not chunk:
+                                    raise IOError(
+                                        f"R2 returned {received} of {expected} bytes for range "
+                                        f"{downloaded}-{end}."
+                                    )
+                                handle.write(chunk)
+                                received += len(chunk)
+                            downloaded = end + 1
+                            handle.flush()
+                            if downloaded >= next_report:
+                                print(
+                                    f"R2 download progress: {downloaded / (1024 * 1024):.0f} MiB",
+                                    flush=True,
+                                )
+                                next_report += 256 * 1024 * 1024
+                            break
+                        except Exception:
+                            if attempt == 2:
+                                raise
+                            time.sleep(2**attempt)
+                        finally:
+                            if body is not None:
+                                body.close()
         except Exception as exc:
             raise R2StorageError(f"Unable to download R2 object '{object_key}': {type(exc).__name__}.") from exc
         return path
+
+    def object_size(self, object_key: str) -> int:
+        return int(self.object_metadata(object_key).get("ContentLength") or 0)
+
+    def read_range(self, object_key: str, start: int, end: int) -> bytes:
+        if start < 0 or end < start:
+            raise ValueError("Invalid R2 byte range.")
+        try:
+            response = self._require_client().get_object(
+                Bucket=self.bucket,
+                Key=object_key,
+                Range=f"bytes={start}-{end}",
+            )
+            body = response["Body"]
+            try:
+                return body.read()
+            finally:
+                body.close()
+        except Exception as exc:
+            raise R2StorageError(
+                f"Unable to read R2 byte range for '{object_key}': {type(exc).__name__}."
+            ) from exc
 
     def object_exists(self, object_key: str) -> bool:
         client = self._require_client()

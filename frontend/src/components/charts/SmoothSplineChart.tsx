@@ -123,7 +123,7 @@ export const SmoothSplineChart: React.FC<SmoothSplineChartProps> = ({
                 x2: 0,
                 y2: 1,
                 colorStops: [
-                  { offset: 0, color: 'rgba(43, 127, 255, 0.25)' },
+                  { offset: 0, color: `rgba(43, 127, 255, ${areaOpacity})` },
                   { offset: 0.85, color: 'rgba(43, 127, 255, 0.03)' },
                   { offset: 1, color: 'rgba(43, 127, 255, 0.00)' },
                 ],

@@ -34,7 +34,7 @@ const Statistics: React.FC = () => {
         if (isMounted) {
           setData(result);
         }
-      } catch (err) {
+      } catch {
         if (isMounted) {
           setError('Unable to load statistics.');
         }

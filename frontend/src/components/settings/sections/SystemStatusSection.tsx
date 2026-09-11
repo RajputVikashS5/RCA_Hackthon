@@ -21,8 +21,8 @@ export const SystemStatusSection: React.FC = () => {
   const [status, setStatus] = useState<SystemStatus | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
-  const loadStatus = async () => {
-    setRefreshing(true);
+  const loadStatus = async (showRefresh = true) => {
+    if (showRefresh) setRefreshing(true);
     try {
       const data = await fetchSystemStatus();
       setStatus(data);
@@ -36,12 +36,16 @@ export const SystemStatusSection: React.FC = () => {
         lastChecked: new Date().toLocaleTimeString(),
       });
     } finally {
-      setRefreshing(false);
+      if (showRefresh) setRefreshing(false);
     }
   };
 
   useEffect(() => {
-    loadStatus();
+    let active = true;
+    void fetchSystemStatus()
+      .then((data) => { if (active) setStatus(data); })
+      .catch(() => { if (active) setStatus({ api: 'Down', vectorDatabase: 'Unknown', embeddingService: 'Unknown', llmService: 'Unknown', knowledgeBase: 'Unknown', lastChecked: new Date().toLocaleTimeString() }); });
+    return () => { active = false; };
   }, []);
 
   return (
@@ -85,7 +89,7 @@ export const SystemStatusSection: React.FC = () => {
         </span>
         <button 
           className="btn-secondary" 
-          onClick={loadStatus} 
+          onClick={() => { void loadStatus(); }}
           disabled={refreshing}
           style={{ padding: '6px 12px', fontSize: '12px' }}
         >

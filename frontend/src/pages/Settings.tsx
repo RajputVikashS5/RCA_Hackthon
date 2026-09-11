@@ -35,7 +35,7 @@ const Settings: React.FC<SettingsProps> = ({ setUnsavedChanges, unsavedChanges }
           setSettings(data);
           setLoading(false);
         }
-      } catch (err) {
+      } catch {
         if (isMounted) {
           setError('Unable to load settings.');
           setLoading(false);

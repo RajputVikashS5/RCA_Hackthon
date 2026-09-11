@@ -1,4 +1,5 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from app.api.auth import require_api_auth
 
 from app.config import DEFAULT_TOP_K
 from app.models.schemas import IncidentAnalysisRequest, SimilarIncidentResponse
@@ -7,7 +8,8 @@ from fastapi import APIRouter, HTTPException, status
 
 router = APIRouter(
     prefix="/api/incidents",
-    tags=["Incident Similarity"]
+    tags=["Incident Similarity"],
+    dependencies=[Depends(require_api_auth)],
 )
 
 retriever = Retriever()

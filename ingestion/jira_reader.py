@@ -13,6 +13,81 @@ except ImportError:  # pragma: no cover - dependency is required for ingestion
     bson = None
 
 
+class R2RangeReader:
+    def __init__(self, storage: Any, object_key: str, size: int, chunk_size: int = 8 * 1024 * 1024) -> None:
+        self.storage, self.object_key, self.size = storage, object_key, size
+        self.chunk_size = chunk_size
+        self.position = 0
+        self.cache: dict[int, bytes] = {}
+        self.max_cached_chunks = 2
+        self.bytes_read = 0
+
+    def seekable(self) -> bool:
+        return True
+
+    def tell(self) -> int:
+        return self.position
+
+    def seek(self, offset: int, whence: int = 0) -> int:
+        if whence == 0:
+            target = offset
+        elif whence == 1:
+            target = self.position + offset
+        elif whence == 2:
+            target = self.size + offset
+        else:
+            raise ValueError("Invalid seek mode.")
+        self.position = max(0, min(target, self.size))
+        return self.position
+
+    def read(self, size: int = -1) -> bytes:
+        remaining = self.size - self.position if size < 0 else min(size, self.size - self.position)
+        remaining = min(remaining, self.chunk_size)
+        result = bytearray()
+        while remaining:
+            start = (self.position // self.chunk_size) * self.chunk_size
+            chunk = self.cache.get(start)
+            if chunk is None:
+                chunk = self.storage.read_range(self.object_key, start, min(start + self.chunk_size, self.size) - 1)
+                self.cache[start] = chunk
+                while len(self.cache) > self.max_cached_chunks:
+                    self.cache.pop(next(iter(self.cache)))
+                self.bytes_read += len(chunk)
+            offset = self.position - start
+            part = chunk[offset:offset + remaining]
+            if not part:
+                break
+            result.extend(part)
+            self.position += len(part)
+            remaining -= len(part)
+        return bytes(result)
+
+    def close(self) -> None:
+        self.cache.clear()
+
+
+def iter_r2_issue_documents(storage: Any, object_key: str, *, collection: str | None = None,
+                            max_records: int | None = None, progress: Any = None) -> Iterator[dict[str, Any]]:
+    if bson is None:
+        raise RuntimeError("pymongo is required to read BSON files.")
+    reader = R2RangeReader(storage, object_key, storage.object_size(object_key))
+    try:
+        with ZipFile(reader) as archive:
+            member = _issue_member(archive.namelist(), collection)
+            with archive.open(member, "r") as raw_handle:
+                header = raw_handle.read(2)
+                raw_handle.seek(0)
+                stream = gzip.GzipFile(fileobj=raw_handle) if header == b"\x1f\x8b" or member.lower().endswith(".archive") else raw_handle
+                for record in _iter_stream_bson(stream, max_records=max_records):
+                    yield record
+                    if progress:
+                        progress(reader.bytes_read)
+    finally:
+        if progress:
+            progress(reader.bytes_read)
+        reader.close()
+
+
 def _archive_path(source: Path) -> Path:
     if source.is_file():
         return source

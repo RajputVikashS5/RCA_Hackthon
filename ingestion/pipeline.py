@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from pathlib import Path
 import sys
-from typing import Any
+from typing import Any, Iterable
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1] / "backend"
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -22,6 +22,8 @@ from ingestion.jira_reader import iter_batches
 from ingestion.jira_transformer import transform_jira_issues
 from ingestion.postgres_loader import upsert_batch
 from ingestion.r2_reader import dataset_file
+from ingestion.r2_batches import iter_prepared_batches
+from app.services.r2_storage import R2Storage
 
 
 @dataclass
@@ -59,6 +61,7 @@ def ingest(
     embedder = EmbeddingModel()
     stats = IngestionStats()
     seen: set[str] = set()
+    accepted = 0
 
     limit = None if max_records == 0 else max_records
     for raw_batch in iter_batches(source, batch_size=batch_size, max_records=limit, collection=collection, skip_records=skip_records):
@@ -71,6 +74,10 @@ def ingest(
                 continue
             seen.add(key)
             transformed.append(record)
+        if max_records > 0:
+            remaining = max_records - accepted
+            transformed = transformed[:remaining]
+        accepted += len(transformed)
         stats.transformed += len(transformed)
         stats.skipped += len(raw_batch) - len(transformed)
         embedded, failed = embed_batch(transformed, embedder)
@@ -85,14 +92,77 @@ def ingest(
             continue
         stats.inserted += count
         stats.processed += count
+        if max_records > 0 and accepted >= max_records:
+            break
     return stats.as_dict()
+
+
+def ingest_prepared_r2(
+    *,
+    batch_size: int = INGEST_BATCH_SIZE,
+    max_records: int = INGEST_MAX_RECORDS,
+    replace_source: bool = False,
+) -> dict[str, int]:
+    initialize_database()
+    repository = IncidentRepository()
+    if replace_source:
+        repository.delete_source("zenodo-public-jira-dataset-v7")
+    embedder = EmbeddingModel()
+    stats = IngestionStats()
+    seen: set[str] = set()
+    accepted = 0
+    storage = R2Storage()
+    for _, raw_records in iter_prepared_batches(storage):
+        raw_batch: list[dict[str, Any]] = []
+        for raw in raw_records:
+            raw_batch.append(raw)
+            if len(raw_batch) >= batch_size:
+                result = _ingest_prepared_batch(raw_batch, repository, embedder, seen, stats, max_records - accepted if max_records > 0 else None)
+                accepted += result
+                raw_batch = []
+                if max_records > 0 and accepted >= max_records:
+                    return stats.as_dict()
+        if raw_batch:
+            accepted += _ingest_prepared_batch(raw_batch, repository, embedder, seen, stats, max_records - accepted if max_records > 0 else None)
+        if max_records > 0 and accepted >= max_records:
+            break
+    return stats.as_dict()
+
+
+def _ingest_prepared_batch(raw_batch, repository, embedder, seen, stats, remaining):
+    transformed = []
+    for record in transform_jira_issues(raw_batch):
+        key = record["incident_id"].casefold()
+        if key in seen:
+            stats.skipped += 1
+            continue
+        seen.add(key)
+        transformed.append(record)
+    if remaining is not None:
+        transformed = transformed[:remaining]
+    if not transformed:
+        return 0
+    existing = repository.existing_incident_ids([record["incident_id"] for record in transformed])
+    transformed = [record for record in transformed if record["incident_id"] not in existing]
+    stats.transformed += len(transformed)
+    stats.discovered += len(raw_batch)
+    stats.read += len(raw_batch)
+    embedded, failed = embed_batch(transformed, embedder)
+    stats.failed += len(failed)
+    stats.embeddings += len(embedded)
+    if embedded:
+        count = upsert_batch(embedded, repository)
+        stats.inserted += count
+        stats.processed += count
+        return len(transformed)
+    return 0
 
 
 if __name__ == "__main__":
     import argparse
     import json
 
-    parser = argparse.ArgumentParser(description="Ingest Jira BSON batches into PostgreSQL + pgvector.")
+    parser = argparse.ArgumentParser(description="Ingest Jira incidents into PostgreSQL + pgvector.")
     parser.add_argument("source", type=Path, nargs="?", default=Path(JIRA_DATA_DIR), help="Local BSON/ZIP path (used with --source local).")
     parser.add_argument("--source", choices=("local", "r2"), default="local", dest="source_type")
     parser.add_argument("--r2-key", default=R2_OBJECT_KEY, help="R2 object key (used with --source r2).")
@@ -107,15 +177,11 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
     if args.source_type == "r2":
-        with dataset_file(args.r2_key) as local_source:
-            result = ingest(
-                local_source,
-                batch_size=args.batch_size,
-                max_records=args.max_records,
-                collection=args.collection,
-                replace_source=args.replace_source,
-                skip_records=args.skip_records,
-            )
+        result = ingest_prepared_r2(
+            batch_size=args.batch_size,
+            max_records=args.max_records,
+            replace_source=args.replace_source,
+        )
     else:
         if args.source is None:
             parser.error("a local source path is required when --source local is selected")
@@ -128,6 +194,6 @@ if __name__ == "__main__":
             skip_records=args.skip_records,
         )
     result["source"] = args.source_type
-    result["dataset"] = args.r2_key if args.source_type == "r2" else str(args.source)
+    result["dataset"] = "prepared-r2-jsonl" if args.source_type == "r2" else str(args.source)
     result["status"] = "completed"
     print(json.dumps(result, indent=2))
